@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, Menu, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -23,7 +23,7 @@ function createWindow() {
     title: 'AVK Studio',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#FBF7F2',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false }
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, autoplayPolicy: 'no-user-gesture-required' }
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
@@ -130,23 +130,31 @@ const api = {
   },
 
   // --- üretim ---
+  'task.start': () => { flow.newSession(); chat.resetTask(); return true; },
   'project.create': ({ name }) => pipeline.projectDir(name),
+  'flow.checkAvatar': ({ dir }) => flow.checkAvatar(path.join(dir, 'avatar.png'), log),
+  'notify': ({ title, body }) => {
+    if (Notification.isSupported() && win && !win.isFocused()) new Notification({ title, body, silent: false }).show();
+    return true;
+  },
+  'projects.delete': ({ id }) => pipeline.deleteProject(id),
+  'projects.deleteAll': () => pipeline.deleteAll(),
   'chat.json': async ({ template, params, files }) => {
     if (!T[template]) throw new Error('Bilinmeyen kalıp: ' + template);
     return chat.askJson(providerOf(), T[template](params || {}), files || [], { log });
   },
   'flow.image': ({ prompt, files, dir, name, aspect }) => pipeline.makeImage({ prompt, files, dir, name, aspect, log, provider: providerOf() }),
-  'flow.clips': async ({ clips, refs, chain, dir, title }) => {
+  'flow.clips': async ({ clips, refs, chain, startFrame, dir, title }) => {
     const res = await pipeline.runClips({
-      clips, refs, chain, dir, title, provider: providerOf(), log,
+      clips, refs, chain, startFrame, dir, title, provider: providerOf(), log,
       progress: (p) => emit({ type: 'clip', ...p })
     });
-    store.addProject({ id: Date.now(), title, dir, final: res.final, date: new Date().toISOString() });
+    if (!store.updateProject(dir, { title, final: res.final, date: new Date().toISOString() })) store.addProject({ id: dir, title, dir, final: res.final, date: new Date().toISOString() });
     return res;
   },
   'video.merge': ({ files, dir, title }) => pipeline.merge({ files, dir, title }),
   'job.cancel': () => { pipeline.cancel(); return true; },
-  'projects.list': () => store.get('projects').filter((p) => fs.existsSync(p.final || p.dir)),
+  'projects.list': () => store.get('projects').filter((p) => p.final && fs.existsSync(p.final)),
 
   // --- yönetici ---
   'admin.list': () => sb.rpc('admin_list'),

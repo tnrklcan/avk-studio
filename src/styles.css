@@ -110,3 +110,17 @@ th { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spa
 .splash { min-height: 100vh; display: grid; place-items: center; }
 .splash img { width: 320px; }
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .wrap { padding: 20px 16px 60px; } h1 { font-size: 28px; } }
+
+.steps .s { border: 0; font: inherit; font-size: 14px; }
+.steps .s.click { cursor: pointer; }
+.steps .s.click:hover { background: #CFEBDA; }
+.bell { position: relative; }
+.bell-btn { font-size: 16px; padding: 6px 12px; }
+.badge-n { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; border-radius: 10px; background: var(--err); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; padding: 0 5px; pointer-events: none; }
+.bell-menu { position: absolute; right: 0; top: 46px; width: 380px; max-width: 90vw; background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 40px rgba(60,35,15,.18); padding: 12px; z-index: 40; color: var(--ink); }
+.bell-list { max-height: 360px; overflow: auto; }
+.bell-item { padding: 10px 8px; border-top: 1px solid var(--line); }
+.bell-item .bt { font-weight: 700; font-size: 15px; }
+.bell-item .bx { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.bell-item .bm { color: #A59A90; font-size: 12px; margin-top: 4px; }
+.bell-item.err .bt { color: var(--err); }

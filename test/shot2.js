@@ -1,0 +1,23 @@
+const { app } = require('electron');
+const fs = require('fs'); const path = require('path'); const os = require('os');
+const out = process.argv[2] || os.tmpdir();
+app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'avk-test-')));
+const m = require('../main.js');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+app.whenReady().then(async () => {
+  await sleep(2500);
+  const w = m.getWin();
+  const shot = async (n) => { const img = await w.webContents.capturePage(); fs.writeFileSync(path.join(out, n + '.png'), img.toPNG()); };
+  const js = (c) => w.webContents.executeJavaScript(c);
+  await js(`document.querySelector('input[type=email]').value='admin@test.com'; document.querySelector('input[type=password]').value='123456'; document.querySelector('.btn').click()`);
+  await sleep(1200);
+  await js(`window.avk.call('settings.set',{tests:{flow:true,chatgpt:true}})`);
+  await js(`S.user={email:'a',is_admin:true}; viewHome()`); await sleep(300);
+  await js(`notify('ok','Karakter kitiniz hazır','Beğenip devam edebilirsiniz.'); notify('error','Bir sorun oluştu','Flow zaman aşımı')`);
+  await sleep(500); await js(`document.querySelector('.bell-btn').click()`); await sleep(300); await shot('b1-zil');
+  await js(`document.body.click(); startMode('history')`); await sleep(500);
+  await js(`document.querySelectorAll('.chip')[2].click()`); await sleep(300); await shot('b2-avatar');
+  await js(`W.kit='/x.png'; W.kitDone=true; W.nav[0]=()=>{}; W.nav[1]=()=>{}; mount(topbar(), h('div',{class:'wrap'}, stepper(['Karakter','Hikaye','Sahneler','Sonuç'],2)))`); await sleep(300); await shot('b3-adim');
+  await js(`viewLibrary()`); await sleep(500); await shot('b4-kutuphane');
+  console.log('done'); app.quit();
+});
