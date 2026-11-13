@@ -1,0 +1,618 @@
+/* AVK Studio arayüzü - sade, adım adım. Metinler "siz" diliyle, düz a harfiyle yazılır. */
+'use strict';
+
+const $ = (s, r = document) => r.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'html') el.innerHTML = v;
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(c));
+  return el;
+}
+const call = (n, a) => window.avk.call(n, a);
+const S = { user: null, info: {}, setup: {}, update: null };
+
+// ---------- ortak yardımcılar ----------
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 3500); }
+const mount = (...nodes) => { const a = $('#app'); a.replaceChildren(...nodes.flat().filter(Boolean)); window.scrollTo(0, 0); };
+const logo = () => h('img', { class: 'logo', src: '../assets/logo.png', alt: 'AI Video Kulübü' });
+
+const busyBox = { logs: [], onStop: null };
+window.avk.on((e) => {
+  if (e.type === 'log') { busyBox.logs.push(e.message); renderBusyLogs(); }
+  else if (e.type === 'calib') { busyBox.calib = e; renderBusyLogs(); }
+  else if (e.type === 'clip') { busyBox.clip = e; renderBusyLogs(); }
+  else if (e.type === 'update') { S.update = e; renderUpdateBanner(); }
+});
+function renderBusyLogs() {
+  const b = $('#busy .logbox'); if (!b) return;
+  b.textContent = busyBox.logs.slice(-6).join('\n');
+  b.scrollTop = b.scrollHeight;
+  const c = busyBox.calib, k = busyBox.clip;
+  const st = $('#busy .status');
+  if (c && st && c.state === 'waiting') st.textContent = `Açılan tarayıcıda: ${c.label}  (${c.index + 1}/${c.total})`;
+  if (k && $('#busy .bar i')) $('#busy .bar i').style.width = Math.round(((k.index + (k.state === 'done' ? 1 : 0.3)) / k.total) * 100) + '%';
+  if (k && st && !c) st.textContent = `Klip ${k.index + 1}/${k.total} ${k.state === 'done' ? 'tamamlandı' : 'üretiliyor'}`;
+}
+
+async function job(title, fn, { stoppable = false, hint = '' } = {}) {
+  busyBox.logs = []; busyBox.calib = null; busyBox.clip = null;
+  const el = $('#busy');
+  el.replaceChildren(h('div', { class: 'box' },
+    h('div', { class: 'spin' }), h('h2', {}, title),
+    h('div', { class: 'status muted' }, hint || 'Lütfen bekleyin...'),
+    h('div', { class: 'bar' }, h('i')),
+    h('div', { class: 'logbox' }),
+    stoppable ? h('button', { class: 'btn danger small', onclick: () => { call('job.cancel'); toast('Durduruluyor...'); } }, 'Durdur') : null));
+  el.classList.remove('hidden');
+  try { return await fn(); }
+  finally { el.classList.add('hidden'); }
+}
+
+function errBox(e) {
+  const needs = e && e.code === 'NEEDS_CALIBRATION';
+  return h('div', { class: 'err-box' }, e.message || String(e),
+    needs ? h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn small', onclick: () => viewSetup() }, 'Kurulum ekranına git')) : null);
+}
+async function safe(fn, host) {
+  try { return await fn(); }
+  catch (e) {
+    if (e.code === 'CANCELLED') { toast('Durduruldu.'); return null; }
+    const box = errBox(e);
+    if (host) { host.querySelector('.err-box')?.remove(); host.append(box); } else toast(e.message);
+    return null;
+  }
+}
+
+function renderUpdateBanner() {
+  const old = $('#upd'); if (old) old.remove();
+  const u = S.update; if (!u) return;
+  const b = h('div', { class: 'banner', id: 'upd' },
+    h('div', {}, h('b', {}, `Yeni sürüm var: ${u.version}. `), u.state === 'downloading' ? 'İndiriliyor...' : u.state === 'ready' ? 'Hazır, yeniden başlatarak kurabilirsiniz.' : 'İndirme sayfasından yeni sürümü kurun.'),
+    u.state === 'ready' ? h('button', { class: 'btn small', onclick: () => window.avk.installUpdate() }, 'Güncelle ve yeniden başlat')
+      : u.state === 'manual' ? h('button', { class: 'btn small', onclick: () => call('files.openDir', { path: u.url }) }, 'İndirme sayfasını aç') : null);
+  const w = $('.wrap'); if (w) w.prepend(b);
+}
+
+function topbar(extra) {
+  return h('div', { class: 'top' }, logo(),
+    h('div', { class: 'right' }, S.user ? h('span', {}, S.user.full_name || S.user.email) : null, extra));
+}
+
+function stepper(names, cur) {
+  return h('div', { class: 'steps' }, names.map((n, i) =>
+    h('div', { class: 's ' + (i === cur ? 'on' : i < cur ? 'done' : '') }, h('b', {}, i < cur ? '✓' : String(i + 1)), n)));
+}
+
+function fileDrop({ multi = false, files, onChange, label }) {
+  const thumbs = h('div', { class: 'thumbs' });
+  const draw = () => {
+    thumbs.replaceChildren(...files.map((f, i) => h('div', { class: 't' }, h('img', { src: f.dataUrl || '' }),
+      h('button', { class: 'x', onclick: () => { files.splice(i, 1); draw(); onChange && onChange(); } }, '×'))));
+  };
+  const drop = h('div', {
+    class: 'drop', onclick: async () => {
+      const picked = await call('files.pick', { multi });
+      if (!picked.length) return;
+      if (multi) files.push(...picked); else files.splice(0, files.length, picked[0]);
+      draw(); onChange && onChange();
+    }
+  }, label || (multi ? 'Görselleri seçmek için tıklayın' : 'Görsel seçmek için tıklayın'));
+  draw();
+  return h('div', {}, drop, thumbs);
+}
+
+function chips(options, value, onPick) {
+  const wrap = h('div', { class: 'chips' });
+  const draw = () => wrap.replaceChildren(...options.map((o) => h('button', { class: 'chip ' + (o.v === value() ? 'on' : ''), onclick: () => { onPick(o.v); draw(); } }, o.t)));
+  draw();
+  return wrap;
+}
+
+// ---------- açılış ----------
+async function boot() {
+  mount(h('div', { class: 'splash' }, h('img', { src: '../assets/logo.png' })));
+  S.info = await call('app.info');
+  window.avk.on(() => {});
+  const u = await safe(() => call('auth.restore'));
+  if (u && u.blocked) { toast('Üyeliğiniz aktif değil.'); return viewLogin(); }
+  if (u && u.email) { S.user = u; return afterLogin(); }
+  viewLogin();
+}
+
+async function afterLogin() {
+  S.setup = await call('setup.status');
+  if (!S.setup.ready) return viewSetup(true);
+  viewHome();
+}
+
+// ---------- giriş ----------
+function viewLogin(tab = 'login') {
+  const err = h('div');
+  const email = h('input', { type: 'email', placeholder: 'ornek@mail.com', autocomplete: 'username' });
+  const pass = h('input', { type: 'password', placeholder: 'Şifreniz', autocomplete: 'current-password' });
+  const pass2 = h('input', { type: 'password', placeholder: 'Şifreyi tekrar yazın' });
+  const first = tab === 'first';
+  const submit = async () => {
+    err.replaceChildren();
+    if (!email.value.includes('@')) return err.append(h('div', { class: 'err-box' }, 'Geçerli bir e-posta yazın.'));
+    if (pass.value.length < 6) return err.append(h('div', { class: 'err-box' }, 'Şifre en az 6 karakter olmalı.'));
+    if (first && pass.value !== pass2.value) return err.append(h('div', { class: 'err-box' }, 'Şifreler aynı değil.'));
+    const r = await safe(() => job(first ? 'Hesabınız hazırlanıyor' : 'Giriş yapılıyor', () => call(first ? 'auth.signup' : 'auth.login', { email: email.value, password: pass.value })), err);
+    if (r) { S.user = r; afterLogin(); }
+  };
+  [email, pass, pass2].forEach((i) => i.addEventListener('keydown', (e) => e.key === 'Enter' && submit()));
+  mount(h('div', { class: 'splash' }, h('div', { class: 'wrap narrow center', style: 'width:100%' },
+    h('img', { src: '../assets/logo.png', style: 'width:300px;margin-bottom:22px' }),
+    h('div', { class: 'card', style: 'text-align:left' },
+      h('div', { class: 'tabs' },
+        h('button', { class: first ? '' : 'on', onclick: () => viewLogin('login') }, 'Giriş yap'),
+        h('button', { class: first ? 'on' : '', onclick: () => viewLogin('first') }, 'İlk giriş')),
+      h('div', { class: 'stack' },
+        first ? h('p', { class: 'muted small', style: 'margin:0' }, 'Skool\'da kullandığınız e-postayı yazın ve kendinize bir şifre belirleyin. Bunu sadece bir kez yapacaksınız.') : null,
+        h('div', {}, h('label', { class: 'f' }, 'E-posta'), email),
+        h('div', {}, h('label', { class: 'f' }, 'Şifre'), pass),
+        first ? h('div', {}, h('label', { class: 'f' }, 'Şifre (tekrar)'), pass2) : null,
+        h('button', { class: 'btn', style: 'width:100%', onclick: submit }, first ? 'Şifremi belirle ve gir' : 'Giriş yap'),
+        err)),
+    S.info.dev ? h('p', { class: 'hint' }, 'Geliştirici modu (Supabase bağlı değil)') : null,
+    !S.info.configured && !S.info.dev ? h('div', { class: 'err-box' }, 'Program henüz sunucuya bağlanmamış (config.json eksik).') : null,
+    h('p', { class: 'hint' }, `Sürüm ${S.info.version}`))));
+  email.focus();
+}
+
+// ---------- kurulum ----------
+async function viewSetup(first) {
+  S.setup = await call('setup.status');
+  const st = S.setup;
+  const err = h('div');
+  const provName = st.provider === 'claude' ? 'Claude' : 'ChatGPT';
+
+  const run = (title, name, args, hint) => async () => {
+    err.replaceChildren();
+    const r = await safe(() => job(title, () => call(name, args), { hint }), err);
+    if (r && r.message) toast(r.message);
+    viewSetup(first);
+  };
+
+  const item = (n, ok, title, desc, actions) => h('div', { class: 'check ' + (ok ? 'ok' : '') },
+    h('div', { class: 'dot' }, ok ? '✓' : String(n)),
+    h('div', { class: 'body' }, h('h3', {}, title), h('div', { class: 'muted small', style: 'margin-bottom:10px' }, desc), h('div', { class: 'row' }, actions)));
+
+  const flowDone = st.flowCalibrated && st.flowTested;
+  const chatDone = st.chatCalibrated && st.chatTested;
+
+  mount(topbar(h('button', { class: 'btn ghost small', onclick: () => (st.ready ? viewHome() : logout()) }, st.ready ? 'Geri' : 'Çıkış')),
+    h('div', { class: 'wrap narrow', style: 'max-width:760px' },
+      h('h1', {}, first ? 'Hoş geldiniz! Önce kısa bir kurulum.' : 'Kurulum ve ayarlar'),
+      h('p', { class: 'sub' }, 'Program, sizin bilgisayarınızdaki Chrome üzerinden Google Flow ve yapay zeka sohbetini kullanır. Aşağıdaki adımları bir kez yapmanız yeterli.'),
+      h('div', { class: 'card' },
+        item(1, flowDone, 'Google Flow bağlantısı',
+          'Chrome açılır. Google hesabınızla giriş yapın ve Flow\'da bir proje açın (alttaki yazı kutusu görünsün). Sonra "Düğmeleri öğret" deyin ve ekrandaki yönergelere göre düğmelere sırayla tıklayın.',
+          [
+            h('button', { class: 'btn ghost small', onclick: run('Flow açılıyor', 'setup.open', { site: 'flow' }) }, '1) Flow\'u aç ve giriş yap'),
+            h('button', { class: 'btn small', onclick: run('Düğmeler öğreniliyor', 'setup.calibrate', { site: 'flow' }, 'Açılan Chrome penceresindeki yönergeleri izleyin.') }, st.flowCalibrated ? '2) Yeniden öğret' : '2) Düğmeleri öğret'),
+            h('button', { class: 'btn ghost small', disabled: !st.flowCalibrated, onclick: run('Flow test ediliyor', 'setup.test', { site: 'flow' }) }, '3) Test et'),
+            flowDone ? h('span', { class: 'badge ok' }, 'Hazır') : null
+          ]),
+        item(2, chatDone, 'Prompt yazan yapay zeka (' + provName + ')',
+          'Promptlar İngilizce olarak ' + provName + ' ile otomatik yazdırılır. Hesabınızla giriş yapın, sonra düğmeleri bir kez öğretin.',
+          [
+            chips([{ v: 'chatgpt', t: 'ChatGPT' }, { v: 'claude', t: 'Claude' }], () => st.provider, async (v) => { await call('settings.set', { provider: v }); viewSetup(first); }),
+            h('div', { style: 'flex-basis:100%' }),
+            h('button', { class: 'btn ghost small', onclick: run(provName + ' açılıyor', 'setup.open', { site: st.provider }) }, '1) Siteyi aç ve giriş yap'),
+            h('button', { class: 'btn small', onclick: run('Düğmeler öğreniliyor', 'setup.calibrate', { site: st.provider }, 'Açılan Chrome penceresindeki yönergeleri izleyin.') }, st.chatCalibrated ? '2) Yeniden öğret' : '2) Düğmeleri öğret'),
+            h('button', { class: 'btn ghost small', disabled: !st.chatCalibrated, onclick: run('Sohbet test ediliyor', 'setup.test', { site: st.provider }, 'Kısa bir test mesajı gönderiliyor...') }, '3) Test et'),
+            chatDone ? h('span', { class: 'badge ok' }, 'Hazır') : null
+          ]),
+        h('div', { class: 'check ' + (st.ready ? 'ok' : '') }, h('div', { class: 'dot' }, st.ready ? '✓' : '3'),
+          h('div', { class: 'body' }, h('h3', {}, st.ready ? 'Her şey hazır!' : 'Son adım'),
+            h('div', { class: 'muted small', style: 'margin-bottom:10px' }, st.ready ? 'Artık video üretebilirsiniz.' : 'İki bağlantı da test edildiğinde program açılır.'),
+            h('button', { class: 'btn', disabled: !st.ready, onclick: viewHome }, 'Programı kullanmaya başla')))),
+      err));
+}
+
+async function logout() { await call('auth.logout'); S.user = null; viewLogin(); }
+
+// ---------- ana ekran ----------
+const MODES = [
+  { id: 'ugc', ico: '🤳', t: 'UGC Video', d: 'Gerçekçi, Türkçe konuşan karakter. İsterseniz ürününüzü de tanıtsın.' },
+  { id: 'product', ico: '📦', t: 'Ürün Tanıtımı', d: 'Ürün fotoğraflarınızdan profesyonel tanıtım videosu.' },
+  { id: 'history', ico: '🏛️', t: 'Zaman Yolculuğu', d: 'Osmanlı, antik çağlar... Kendinizi tarihin içinde anlatın.' },
+  { id: 'cine', ico: '🎬', t: 'Sinematik Film', d: 'Hayalinizdeki karakter ve hikaye. İstediğiniz kadar uzatın.' }
+];
+
+function viewHome() {
+  const right = [
+    h('button', { class: 'btn ghost small', onclick: viewLibrary }, 'Videolarım'),
+    S.user && S.user.is_admin ? h('button', { class: 'btn ghost small', onclick: viewAdmin }, 'Yönetici') : null,
+    h('button', { class: 'btn ghost small', onclick: viewSettings }, 'Ayarlar')
+  ];
+  mount(topbar(right), h('div', { class: 'wrap' },
+    h('h1', {}, 'Ne üretmek istersiniz?'),
+    h('p', { class: 'sub' }, 'Bir başlık seçin, gerisini program halleder.'),
+    h('div', { class: 'grid' }, MODES.map((m) => h('button', { class: 'mode', onclick: () => startMode(m.id) },
+      h('div', { class: 'ico' }, m.ico), h('h3', {}, m.t), h('p', {}, m.d))))));
+  renderUpdateBanner();
+}
+
+// ---------- ayarlar ----------
+async function viewSettings() {
+  const info = await call('app.info');
+  const st = await call('setup.status');
+  mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Geri')), h('div', { class: 'wrap narrow', style: 'max-width:760px' },
+    h('h1', {}, 'Ayarlar'),
+    h('div', { class: 'card stack' },
+      h('div', {}, h('label', { class: 'f' }, 'Videoların kaydedileceği klasör'),
+        h('div', { class: 'row' }, h('code', {}, info.outputDir), h('button', { class: 'btn ghost small', onclick: async () => { await call('settings.pickOutput'); viewSettings(); } }, 'Değiştir'))),
+      h('div', {}, h('label', { class: 'f' }, 'Bağlantılar'),
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => viewSetup(false) }, 'Kurulum ekranını aç'),
+          h('span', { class: 'muted small' }, st.ready ? 'Her şey hazır.' : 'Eksik adımlar var.'))),
+      h('div', {}, h('label', { class: 'f' }, 'Hesap'), h('div', { class: 'row' }, h('span', {}, S.user.email), h('button', { class: 'btn danger small', onclick: logout }, 'Çıkış yap'))),
+      h('div', { class: 'muted small' }, `AVK Studio sürüm ${info.version} · ${info.platform === 'mac' ? 'Mac' : 'Windows'}`))));
+}
+
+// ---------- kütüphane ----------
+async function viewLibrary() {
+  const list = await call('projects.list');
+  mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Geri')), h('div', { class: 'wrap' },
+    h('h1', {}, 'Videolarım'),
+    list.length ? h('div', { class: 'stack' }, list.map((p) => h('div', { class: 'card row', style: 'justify-content:space-between' },
+      h('div', {}, h('h3', { style: 'margin:0' }, p.title || 'Video'), h('div', { class: 'muted small' }, new Date(p.date).toLocaleString('tr-TR'))),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn small', onclick: () => viewResult({ final: p.final, dir: p.dir, title: p.title }, viewLibrary) }, 'İzle'),
+        h('button', { class: 'btn ghost small', onclick: () => call('files.reveal', { path: p.final || p.dir }) }, 'Klasörde göster')))))
+      : h('p', { class: 'sub' }, 'Henüz video üretmediniz.')));
+}
+
+function viewResult(res, back) {
+  mount(topbar(h('button', { class: 'btn ghost small', onclick: back || viewHome }, 'Geri')), h('div', { class: 'wrap narrow', style: 'max-width:640px' },
+    h('h1', {}, 'Videonuz hazır 🎉'),
+    h('video', { class: 'player', controls: true, src: 'file://' + encodeURI(res.final).replace(/#/g, '%23') }),
+    h('div', { class: 'row', style: 'margin-top:18px' },
+      h('button', { class: 'btn', onclick: () => call('files.reveal', { path: res.final }) }, 'Klasörde göster'),
+      h('button', { class: 'btn ghost', onclick: viewHome }, 'Ana sayfa'))));
+}
+
+// ---------- üretim sihirbazları ----------
+let W = null;
+function startMode(id) {
+  W = { id, step: 0, files: { ref: [], product: [] }, desc: '', kind: 'photo', provider: S.setup.provider };
+  W.dir = null;
+  ({ ugc: wUgc, product: wProduct, history: wHistory, cine: wCine })[id]();
+}
+const wFrame = (title, names, step, body, back) => mount(
+  topbar(h('button', { class: 'btn ghost small', onclick: back || viewHome }, 'Ana sayfa')),
+  h('div', { class: 'wrap narrow', style: 'max-width:820px' }, h('h1', {}, title), stepper(names, step), body));
+const ensureDir = async (name) => { if (!W.dir) W.dir = await call('project.create', { name }); return W.dir; };
+const reviewTitle = (n) => `${n} klip hazırlandı`;
+
+// Karakter adımı (UGC ve Zaman Yolculuğu için ortak)
+function characterStep({ title, hint, names, step, next, again }) {
+  const err = h('div');
+  const desc = h('textarea', { placeholder: 'Örn: 28 yaşında, kısa siyah saçlı, sıcak gülümseyen bir kadın. Beyaz tişört giyiyor.' });
+  desc.value = W.desc || '';
+  const kindBox = h('div');
+  const drawKind = () => {
+    kindBox.replaceChildren(
+      chips([{ v: 'photo', t: 'Referans fotoğrafım var' }, { v: 'text', t: 'Tarif edeceğim' }, { v: 'ready', t: 'Hazır karakter kitim var' }], () => W.kind, (v) => { W.kind = v; drawKind(); }),
+      h('div', { style: 'margin-top:16px' },
+        W.kind !== 'text' ? h('div', {}, h('label', { class: 'f' }, W.kind === 'ready' ? 'Karakter görseliniz' : 'Referans fotoğrafınız'), fileDrop({ files: W.files.ref }), hint ? h('div', { class: 'hint' }, hint) : null) : null,
+        h('div', { style: 'margin-top:14px' }, h('label', { class: 'f' }, W.kind === 'text' ? 'Karakteri anlatın' : 'Kısa not (isteğe bağlı)'), desc)));
+  };
+  drawKind();
+  const go = async () => {
+    err.replaceChildren();
+    W.desc = desc.value.trim();
+    if (W.kind !== 'text' && !W.files.ref.length) return err.append(h('div', { class: 'err-box' }, 'Lütfen bir görsel seçin.'));
+    if (W.kind === 'text' && W.desc.length < 8) return err.append(h('div', { class: 'err-box' }, 'Lütfen karakteri biraz daha anlatın.'));
+    const refPaths = W.files.ref.map((f) => f.path);
+    const r = await safe(() => job('Karakteriniz hazırlanıyor', async () => {
+      const dir = await ensureDir(W.title || 'Video');
+      const j = await call('chat.json', { template: 'characterKit', params: { description: W.desc, hasReference: W.kind === 'photo' }, files: refPaths });
+      W.charDesc = j.short_description;
+      if (W.kind === 'ready') { W.kit = refPaths[0]; return; }
+      W.kit = await call('flow.image', { prompt: j.prompt, files: W.kind === 'photo' ? refPaths : [], dir, name: 'karakter-kiti.png' });
+    }, { stoppable: true, hint: 'Önce prompt yazılır, sonra Flow görseli üretir. Bu 1-3 dakika sürebilir.' }), err);
+    if (r !== null) kitPreview();
+  };
+  const kitPreview = async () => {
+    const du = await call('files.dataUrl', { path: W.kit });
+    wFrame(title, names, step, h('div', { class: 'card stack' },
+      h('h2', {}, 'Karakter kitiniz'), h('img', { class: 'preview', src: du }),
+      h('p', { class: 'muted small' }, W.charDesc),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: next }, 'Beğendim, devam et'),
+        h('button', { class: 'btn ghost', onclick: () => { W.kit = null; again(); } }, 'Yeniden üret'))));
+  };
+  wFrame(title, names, step, h('div', { class: 'card stack' },
+    h('h2', {}, 'Karakteriniz kim?'), kindBox,
+    h('button', { class: 'btn', onclick: go }, W.kind === 'ready' ? 'Devam et' : 'Karakter kitini oluştur'), err));
+}
+
+// Klip inceleme + üretim (ortak)
+function clipsReview({ title, names, step, clips, refs, chain, startFrame, onDone, extraTop }) {
+  const err = h('div');
+  const list = h('div', {}, clips.map((c, i) => h('div', { class: 'clip' },
+    h('span', { class: 'badge' }, `Klip ${i + 1} · ${c.seconds || 8} sn`), c.turkish_line ? h('span', { class: 'line' }, '“' + c.turkish_line + '”') : h('span', { class: 'muted' }, 'Görsel anlatım'),
+    h('details', {}, h('summary', {}, 'İngilizce promptu gör / düzenle'),
+      h('textarea', { oninput: (e) => { c.prompt = e.target.value; } }, c.prompt)))));
+  const go = async () => {
+    err.replaceChildren();
+    const r = await safe(() => job('Videonuz üretiliyor', async () => {
+      const dir = await ensureDir(W.title || 'Video');
+      return call('flow.clips', { clips, refs, chain, startFrame, dir, title: W.title || 'video' });
+    }, { stoppable: true, hint: 'Her klip birkaç dakika sürer. Chrome penceresini kapatmayın.' }), err);
+    if (r) onDone(r);
+  };
+  wFrame(title, names, step, h('div', { class: 'card stack' },
+    h('h2', {}, reviewTitle(clips.length)), extraTop,
+    h('p', { class: 'sub', style: 'margin:0' }, 'Her klibin altındaki ok ile promptu görebilir ve isterseniz düzeltebilirsiniz. Bilmiyorsanız dokunmayın.'),
+    list, h('button', { class: 'btn', onclick: go }, 'Videoyu üret'), err));
+}
+
+// 1) UGC
+function wUgc() {
+  const names = ['Karakter', 'Video', 'Sahneler', 'Sonuç'];
+  const step1 = () => characterStep({ title: 'UGC Video', hint: 'Net, yüzü açık bir fotoğraf en iyi sonucu verir.', names, step: 0, next: step2, again: wUgc });
+  const step2 = () => {
+    const err = h('div');
+    const script = h('textarea', { style: 'min-height:170px', placeholder: 'Videoda ne anlatılacak? Konuşma metnini ya da sadece fikri yazın.\nÖrn: Bu cilt serumunu 2 haftadır kullanıyorum ve cildimde şaşırtıcı bir fark gördüm...' });
+    script.value = W.script || '';
+    const note = h('input', { type: 'text', placeholder: 'Ürün hakkında kısa not (isteğe bağlı)' });
+    wFrame('UGC Video', names, 1, h('div', { class: 'card stack' },
+      h('h2', {}, 'Video konusu veya senaryosu'), script,
+      h('div', {}, h('label', { class: 'f' }, 'Ürün tanıtacaksa ürün görseli (isteğe bağlı)'), fileDrop({ files: W.files.product }), h('div', { style: 'margin-top:10px' }, note)),
+      h('button', {
+        class: 'btn', onclick: async () => {
+          W.script = script.value.trim();
+          if (W.script.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen konuyu biraz daha yazın.'));
+          const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
+            template: 'ugcScenes', params: { characterDesc: W.charDesc, script: W.script, hasProduct: W.files.product.length > 0, productNote: note.value },
+            files: [W.kit, ...W.files.product.map((f) => f.path)]
+          }), { hint: 'Yapay zeka senaryonuzu klip klip planlıyor...' }), err);
+          if (!r) return;
+          W.title = r.title || 'UGC Video';
+          step3(r.clips);
+        }
+      }, 'Sahneleri hazırla'), err));
+  };
+  const step3 = (clips) => clipsReview({
+    title: 'UGC Video', names, step: 2, clips, refs: [W.kit, ...W.files.product.map((f) => f.path)], chain: false,
+    onDone: (r) => viewResult(r)
+  });
+  step1();
+}
+
+// 2) Ürün tanıtımı
+function wProduct() {
+  const names = ['Ürün', 'Sahneler', 'Sonuç'];
+  const STYLES = ['Lüks ve şık', 'Minimal beyaz stüdyo', 'Sosyal medya (canlı, enerjik)', 'Sinematik', 'Doğal ve sıcak yaşam tarzı'];
+  W.style = STYLES[0]; W.count = 3;
+  const err = h('div');
+  const note = h('input', { type: 'text', placeholder: 'Ürün nedir? (örn: lavanta kokulu el kremi)' });
+  const custom = h('input', { type: 'text', placeholder: 'Veya kendi tarzınızı yazın (örn: Apple reklamı gibi sade)' });
+  wFrame('Ürün Tanıtımı', names, 0, h('div', { class: 'card stack' },
+    h('h2', {}, 'Ürün görselleriniz'), fileDrop({ multi: true, files: W.files.product, label: 'Ürün fotoğraflarını seçin (1-4 adet)' }), note,
+    h('div', {}, h('label', { class: 'f' }, 'Nasıl bir tarz istersiniz?'), chips(STYLES.map((s) => ({ v: s, t: s })), () => W.style, (v) => { W.style = v; custom.value = ''; }), h('div', { style: 'margin-top:10px' }, custom)),
+    h('div', {}, h('label', { class: 'f' }, 'Kaç sahne?'), chips([2, 3, 4].map((n) => ({ v: n, t: n + ' sahne' })), () => W.count, (v) => { W.count = v; })),
+    h('button', {
+      class: 'btn', onclick: async () => {
+        if (!W.files.product.length) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen en az bir ürün görseli seçin.'));
+        const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
+          template: 'productShots', params: { style: custom.value.trim() || W.style, productNote: note.value, count: W.count }, files: W.files.product.map((f) => f.path)
+        })), err);
+        if (!r) return;
+        W.title = r.title || 'Ürün Tanıtımı';
+        clipsReview({ title: 'Ürün Tanıtımı', names, step: 1, clips: r.clips, refs: W.files.product.map((f) => f.path), chain: false, onDone: (x) => viewResult(x) });
+      }
+    }, 'Sahneleri hazırla'), err));
+}
+
+// 3) Zaman yolculuğu
+function wHistory() {
+  const names = ['Karakter', 'Hikaye', 'Sahneler', 'Sonuç'];
+  const step1 = () => characterStep({ title: 'Zaman Yolculuğu', hint: 'Google Flow avatarınızın görselini de seçebilirsiniz.', names, step: 0, next: step2, again: wHistory });
+  const step2 = () => {
+    const err = h('div');
+    W.count = 4;
+    const story = h('textarea', { style: 'min-height:130px', placeholder: 'Hangi anı canlandıralım? Örn: Şehzade Mustafa\'nın son gecesi, Konya Ereğlisi, 1553' });
+    const era = h('input', { type: 'text', placeholder: 'Dönem (isteğe bağlı): Osmanlı, Roma, Selçuklu...' });
+    const ideasBox = h('div', { class: 'stack' });
+    const suggest = async () => {
+      const r = await safe(() => job('Hikaye fikirleri aranıyor', () => call('chat.json', { template: 'historyIdeas', params: { era: era.value } }), { hint: 'Yapay zeka size hikaye öneriyor...' }), err);
+      if (!r) return;
+      ideasBox.replaceChildren(...r.ideas.map((i) => h('div', { class: 'clip', style: 'cursor:pointer', onclick: () => { story.value = `${i.title} (${i.era}). ${i.hook}`; toast('Seçildi'); } },
+        h('div', { class: 'line' }, i.title), h('div', { class: 'muted small' }, `${i.era} · ${i.hook}`))));
+    };
+    wFrame('Zaman Yolculuğu', names, 1, h('div', { class: 'card stack' },
+      h('h2', {}, 'Hangi hikayeyi anlatalım?'), story,
+      h('div', {}, h('label', { class: 'f' }, 'Öneri istiyorsanız'), era, h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn ghost small', onclick: suggest }, '✨ Bana hikaye öner'))),
+      ideasBox,
+      h('div', {}, h('label', { class: 'f' }, 'Uzunluk'), chips([{ v: 3, t: '~25 sn' }, { v: 4, t: '~30 sn' }, { v: 6, t: '~45 sn' }], () => W.count, (v) => { W.count = v; })),
+      h('button', {
+        class: 'btn', onclick: async () => {
+          W.story = story.value.trim();
+          if (W.story.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen bir hikaye yazın veya öneriden seçin.'));
+          const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
+            template: 'historyScenes', params: { characterDesc: W.charDesc, story: W.story, clipCount: W.count }, files: [W.kit]
+          })), err);
+          if (!r) return;
+          W.title = r.title || 'Zaman Yolculuğu';
+          clipsReview({ title: 'Zaman Yolculuğu', names, step: 2, clips: r.clips, refs: [W.kit], chain: true, onDone: (x) => viewResult(x) });
+        }
+      }, 'Sahneleri hazırla'), err));
+  };
+  step1();
+}
+
+// 4) Sinematik
+function wCine() {
+  const names = ['Karakter', 'Hikaye', 'Sahneler', 'Sonuç'];
+  W.allClips = []; W.storyLog = '';
+  const step1 = () => {
+    const err = h('div');
+    const idea = h('textarea', { placeholder: 'Hayalinizdeki karakteri yazın. Örn: Ayda savaşan fütüristik bir Türk askeri. Kararlı bakışlı, 35 yaşında.' });
+    idea.value = W.idea || '';
+    wFrame('Sinematik Film', names, 0, h('div', { class: 'card stack' },
+      h('h2', {}, 'Karakterinizi hayal edin'), idea,
+      h('div', {}, h('label', { class: 'f' }, 'Referans görsel (isteğe bağlı)'), fileDrop({ files: W.files.ref })),
+      h('button', {
+        class: 'btn', onclick: async () => {
+          W.idea = idea.value.trim();
+          if (W.idea.length < 8) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen karakteri biraz daha anlatın.'));
+          const refs = W.files.ref.map((f) => f.path);
+          const r = await safe(() => job('Karakteriniz oluşturuluyor', async () => {
+            const dir = await ensureDir('Sinematik');
+            const j = await call('chat.json', { template: 'cinematicCharacter', params: { idea: W.idea }, files: refs });
+            W.charDesc = j.short_description;
+            W.kit = await call('flow.image', { prompt: j.prompt, files: refs, dir, name: 'karakter.png' });
+          }, { stoppable: true, hint: 'Önce sahne promptu yazılır, sonra Flow görseli üretir.' }), err);
+          if (r !== null) preview();
+        }
+      }, 'Karakteri oluştur'), err));
+  };
+  const preview = async () => {
+    const du = await call('files.dataUrl', { path: W.kit });
+    wFrame('Sinematik Film', names, 0, h('div', { class: 'card stack' }, h('h2', {}, 'Karakteriniz'), h('img', { class: 'preview', src: du }), h('p', { class: 'muted small' }, W.charDesc),
+      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: step2 }, 'Beğendim, hikayeye geç'), h('button', { class: 'btn ghost', onclick: step1 }, 'Yeniden üret'))));
+  };
+  const step2 = () => {
+    const err = h('div');
+    const story = h('textarea', { placeholder: 'Hikayeyi bir cümleyle anlatın. Örn: Karakter terk edilmiş bir ay üssünde gizemli bir ışığı fark eder.' });
+    wFrame('Sinematik Film', names, 1, h('div', { class: 'card stack' },
+      h('h2', {}, 'Hikayeniz'), story,
+      h('button', {
+        class: 'btn', onclick: async () => {
+          W.story = story.value.trim();
+          if (W.story.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen hikayeyi bir cümleyle yazın.'));
+          const r = await safe(() => job('Storyboard hazırlanıyor', async () => {
+            const sb = await call('chat.json', { template: 'cinematicStoryboard', params: { characterDesc: W.charDesc, story: W.story }, files: [W.kit] });
+            const cl = await call('chat.json', { template: 'cinematicClips', params: { characterDesc: W.charDesc, panels: sb.panels } });
+            return { sb, cl };
+          }, { hint: '9 karelik storyboard ve video sahneleri yazılıyor...' }), err);
+          if (!r) return;
+          W.title = 'Sinematik Film'; W.storyLog = W.story;
+          const board = h('table', {}, h('tr', {}, h('th', {}, 'Zaman'), h('th', {}, 'Plan')),
+            ...r.sb.panels.map((p) => h('tr', {}, h('td', {}, p.time), h('td', {}, h('b', {}, p.title + ': '), p.action))));
+          clipsReview({
+            title: 'Sinematik Film', names, step: 2, clips: r.cl.clips, refs: [W.kit], chain: true, extraTop: board,
+            onDone: (x) => { W.allClips = x.clips; W.final = x.final; step4(x); }
+          });
+        }
+      }, 'Storyboard ve sahneleri hazırla'), err));
+  };
+  // Hikayeyi devam ettirme
+  const step4 = (res) => {
+    const err = h('div');
+    const dir = h('textarea', { style: 'min-height:90px', placeholder: 'Sonraki bölüm nasıl devam etsin? (boş bırakırsanız yapay zeka karar verir)' });
+    const ideas = h('div', { class: 'chips' });
+    const suggest = async () => {
+      const r = await safe(() => job('Fikirler aranıyor', () => call('chat.json', { template: 'nextStoryIdeas', params: { storySoFar: W.storyLog } })), err);
+      if (r) ideas.replaceChildren(...r.options.map((o) => h('button', { class: 'chip', onclick: () => { dir.value = o; } }, o)));
+    };
+    const more = async () => {
+      const r = await safe(() => job('Devam bölümü hazırlanıyor', () => call('chat.json', {
+        template: 'continueStory', params: { characterDesc: W.charDesc, storySoFar: W.storyLog, userDirection: dir.value.trim() }, files: [W.kit]
+      })), err);
+      if (!r) return;
+      W.storyLog += ' | ' + (r.summary_tr || dir.value);
+      const startFrame = res.clips[res.clips.length - 1];
+      clipsReview({
+        title: 'Hikayeyi devam ettir', names, step: 3, clips: r.clips, refs: [W.kit], chain: true, startFrame,
+        onDone: async (x) => {
+          W.allClips = [...W.allClips, ...x.clips];
+          const merged = await safe(() => job('Tüm hikaye birleştiriliyor', () => call('video.merge', { files: W.allClips, dir: W.dir, title: 'Tum-Hikaye' })));
+          step4({ clips: W.allClips, final: merged || x.final });
+        }
+      });
+    };
+    mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Ana sayfa')), h('div', { class: 'wrap narrow', style: 'max-width:820px' },
+      h('h1', {}, 'Filminiz hazır 🎬'), stepper(names, 3),
+      h('div', { class: 'card stack' },
+        h('video', { class: 'player', controls: true, src: 'file://' + encodeURI(res.final).replace(/#/g, '%23') }),
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost', onclick: () => call('files.reveal', { path: res.final }) }, 'Klasörde göster'))),
+      h('div', { class: 'card stack', style: 'margin-top:20px' },
+        h('h2', {}, 'Hikaye burada bitmesin 🚀'), h('p', { class: 'sub', style: 'margin:0' }, 'İstediğiniz kadar uzatabilirsiniz. Her bölüm öncekinin son karesinden devam eder.'),
+        dir, h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: suggest }, '✨ Bana fikir ver'), ideas),
+        h('button', { class: 'btn', onclick: more }, 'Hikayeyi devam ettir'), err)));
+  };
+  step1();
+}
+
+// ---------- yönetici ----------
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const rows = []; const seen = new Set();
+  const split = (l) => { const out = []; let cur = '', q = false; for (const ch of l) { if (ch === '"') q = !q; else if ((ch === ',' || ch === ';' || ch === '\t') && !q) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out.map((x) => x.trim()); };
+  const head = split(lines[0]).map((x) => x.toLowerCase());
+  const nameIdx = head.findIndex((x) => /^(name|full ?name|ad ?soyad|isim)$/.test(x));
+  const fIdx = head.findIndex((x) => /first/.test(x)), lIdx = head.findIndex((x) => /last/.test(x));
+  for (const l of lines) {
+    const m = l.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+    if (!m) continue;
+    const email = m[0].toLowerCase(); if (seen.has(email)) continue; seen.add(email);
+    const c = split(l);
+    let name = nameIdx >= 0 ? c[nameIdx] : [fIdx >= 0 ? c[fIdx] : '', lIdx >= 0 ? c[lIdx] : ''].join(' ').trim();
+    if (name && name.includes('@')) name = '';
+    rows.push({ email, name: name || '' });
+  }
+  return rows;
+}
+
+async function viewAdmin(tab = 'members') {
+  const body = h('div', { class: 'card' }, 'Yükleniyor...');
+  const tabs = h('div', { class: 'tabs' },
+    ['members:Üyeler', 'import:CSV yükle', 'config:Uzaktan ayar'].map((t) => { const [k, n] = t.split(':'); return h('button', { class: tab === k ? 'on' : '', onclick: () => viewAdmin(k) }, n); }));
+  mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Geri')), h('div', { class: 'wrap' }, h('h1', {}, 'Yönetici paneli'), tabs, body));
+  const err = h('div');
+  if (tab === 'members') {
+    const list = await safe(() => call('admin.list'), body);
+    if (!list) return;
+    const q = h('input', { type: 'text', placeholder: 'E-posta veya isim ara...' });
+    const tbl = h('div');
+    const draw = () => {
+      const f = q.value.toLowerCase();
+      tbl.replaceChildren(h('table', {}, h('tr', {}, ['E-posta', 'İsim', 'Durum', 'Son görülme', 'Sürüm', ''].map((x) => h('th', {}, x))),
+        ...list.filter((m) => !f || (m.email + ' ' + (m.full_name || '')).toLowerCase().includes(f)).map((m) => h('tr', {},
+          h('td', {}, m.email), h('td', {}, m.full_name || ''),
+          h('td', {}, h('span', { class: 'badge ' + (m.active ? 'ok' : '') }, m.active ? 'Aktif' : 'Pasif')),
+          h('td', {}, m.last_seen ? new Date(m.last_seen).toLocaleDateString('tr-TR') : '-'), h('td', {}, m.app_version || '-'),
+          h('td', {}, m.is_admin ? 'Yönetici' : h('button', { class: 'btn ghost small', onclick: async () => { await safe(() => call('admin.setActive', { email: m.email, active: !m.active })); viewAdmin('members'); } }, m.active ? 'Kapat' : 'Aç'))))));
+    };
+    q.addEventListener('input', draw); draw();
+    body.replaceChildren(h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:12px' }, h('b', {}, `${list.length} üye · ${list.filter((m) => m.active).length} aktif`), h('div', { style: 'width:280px' }, q)), tbl);
+  } else if (tab === 'import') {
+    let rows = null;
+    const deact = h('input', { type: 'checkbox', checked: true });
+    const out = h('div');
+    const pick = async () => {
+      const t = await call('files.csv'); if (!t) return;
+      rows = parseCsv(t);
+      out.replaceChildren(h('p', {}, h('b', {}, rows.length + ' e-posta bulundu.'), ' İlk 5: ' + rows.slice(0, 5).map((r) => r.email).join(', ')),
+        h('label', { class: 'row' }, deact, 'Listede olmayan üyeleri kapat (Skool\'dan ayrılanlar)'),
+        h('button', { class: 'btn', onclick: async () => {
+          const r = await safe(() => job('Üyeler yükleniyor', () => call('admin.import', { rows, deactivateMissing: deact.checked })), err);
+          if (r) toast(`${r.added} yeni, ${r.reactivated} yeniden açıldı, ${r.deactivated} kapatıldı`);
+        } }, 'Üyeleri kaydet'));
+    };
+    body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Skool üye listesini yükleyin'),
+      h('p', { class: 'sub', style: 'margin:0' }, 'Skool\'dan indirdiğiniz CSV dosyasını seçin. İçindeki e-postalar otomatik üye olur.'),
+      h('button', { class: 'btn', onclick: pick }, 'CSV dosyası seç'), out, err));
+  } else {
+    const ta = h('textarea', { style: 'min-height:240px;font-family:monospace;font-size:13px', placeholder: '[ {"key":"promptBox","label":"..."}, ... ]' });
+    body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Düğme listesini uzaktan güncelle'),
+      h('p', { class: 'sub', style: 'margin:0' }, 'Google Flow arayüzü değişirse, kalibrasyon adım listesini buradan tüm üyelere gönderebilirsiniz (JSON). Üyeler bir sonraki kalibrasyonda yeni listeyi kullanır.'),
+      ta, h('button', { class: 'btn', onclick: async () => {
+        let v; try { v = JSON.parse(ta.value); } catch (_) { return toast('Geçerli JSON değil'); }
+        const r = await safe(() => call('admin.setConfig', { key: 'flow_steps', value: v }), err); if (r !== null) toast('Kaydedildi');
+      } }, 'Kaydet'), err));
+  }
+}
+
+boot();
