@@ -65,17 +65,6 @@ async function checkUpdate() {
 const platform = () => (process.platform === 'darwin' ? 'mac' : 'win');
 const providerOf = () => store.get('settings').provider || 'chatgpt';
 
-function calibSpec(site) {
-  if (site === 'flow') return { key: flow.SITE, url: flow.URL, steps: flow.STEPS };
-  const s = chat.siteOf(site);
-  return { key: s.key, url: s.url, steps: chat.STEPS };
-}
-
-async function flowSteps() {
-  const remote = await sb.remoteConfig('flow_steps');
-  return Array.isArray(remote) && remote.length ? remote : flow.STEPS;
-}
-
 const api = {
   'app.info': async () => ({
     version: app.getVersion(), platform: platform(), configured: sb.configured(), dev: sb.DEV,
@@ -88,49 +77,26 @@ const api = {
   'auth.signup': ({ email, password }) => sb.firstSignup(email, password, app.getVersion(), platform()),
   'auth.logout': () => { sb.signOut(); return true; },
 
-  // --- kurulum ---
+  // --- kurulum (kalibrasyon gerekmez: otomatik bağlan + test) ---
   'setup.status': () => {
     const p = providerOf();
-    const flowOk = flow.isCalibrated();
-    const chatOk = chat.isCalibrated(p);
     const t = store.get('settings').tests || {};
-    return {
-      provider: p, flowCalibrated: flowOk, chatCalibrated: chatOk,
-      flowTested: !!t.flow, chatTested: !!t[p],
-      ready: flowOk && chatOk && !!t.flow && !!t[p]
-    };
+    return { provider: p, flowTested: !!t.flow, chatTested: !!t[p], ready: !!t.flow && !!t[p] };
   },
-  'setup.open': async ({ site }) => {
-    const s = calibSpec(site);
-    await browser.getPage(s.key, s.url);
-    return true;
-  },
-  'setup.calibrate': async ({ site }) => {
-    const s = calibSpec(site);
-    const steps = site === 'flow' ? await flowSteps() : s.steps;
-    await browser.calibrate(s.key, s.url, steps, (p) => emit({ type: 'calib', ...p }));
-    const st = store.get('settings'); st.tests = { ...(st.tests || {}), [site]: false }; store.set('settings', st);
-    return true;
-  },
-  'setup.reset': ({ site }) => {
-    store.clearCalib(calibSpec(site).key);
-    const st = store.get('settings'); st.tests = { ...(st.tests || {}), [site]: false }; store.set('settings', st);
-    return true;
-  },
-  'setup.test': async ({ site }) => {
-    const markOk = () => { const st = store.get('settings'); st.tests = { ...(st.tests || {}), [site]: true }; store.set('settings', st); };
+  'setup.connect': async ({ site }) => {
+    const mark = (v) => { const st = store.get('settings'); st.tests = { ...(st.tests || {}), [site]: v }; store.set('settings', st); };
+    mark(false);
     if (site === 'flow') {
-      const s = calibSpec('flow');
-      const page = await browser.getPage(s.key, s.url);
-      await browser.sleep(3000);
-      for (const k of ['promptBox', 'generate']) await browser.resolveEl(page, s.key, k, { wait: 8000 });
-      markOk();
-      return { ok: true, message: 'Google Flow düğmeleri bulundu.' };
+      await flow.connect(log);
+      log('Flow düğmeleri kontrol ediliyor...');
+      await flow.selfTest(log);
+      mark(true);
+      return { message: 'Google Flow hazır.' };
     }
-    const reply = await chat.ask(site, 'Reply with exactly: AVK_OK', [], { timeout: 90000, log });
-    if (!/AVK_OK/i.test(reply)) throw new Error('Cevap okunamadı. Kalibrasyonu yenileyin.');
-    markOk();
-    return { ok: true, message: chat.siteOf(site).name + ' çalışıyor.' };
+    log('Sohbet test ediliyor...');
+    await chat.selfTest(site, log);
+    mark(true);
+    return { message: chat.siteOf(site).name + ' hazır.' };
   },
   'settings.get': () => store.get('settings'),
   'settings.set': (patch) => {
@@ -169,7 +135,7 @@ const api = {
     if (!T[template]) throw new Error('Bilinmeyen kalıp: ' + template);
     return chat.askJson(providerOf(), T[template](params || {}), files || [], { log });
   },
-  'flow.image': ({ prompt, files, dir, name }) => pipeline.makeImage({ prompt, files, dir, name, log, provider: providerOf() }),
+  'flow.image': ({ prompt, files, dir, name, aspect }) => pipeline.makeImage({ prompt, files, dir, name, aspect, log, provider: providerOf() }),
   'flow.clips': async ({ clips, refs, chain, dir, title }) => {
     const res = await pipeline.runClips({
       clips, refs, chain, dir, title, provider: providerOf(), log,

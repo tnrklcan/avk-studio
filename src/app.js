@@ -25,7 +25,6 @@ const logo = () => h('img', { class: 'logo', src: '../assets/logo.png', alt: 'AI
 const busyBox = { logs: [], onStop: null };
 window.avk.on((e) => {
   if (e.type === 'log') { busyBox.logs.push(e.message); renderBusyLogs(); }
-  else if (e.type === 'calib') { busyBox.calib = e; renderBusyLogs(); }
   else if (e.type === 'clip') { busyBox.clip = e; renderBusyLogs(); }
   else if (e.type === 'update') { S.update = e; renderUpdateBanner(); }
 });
@@ -33,15 +32,14 @@ function renderBusyLogs() {
   const b = $('#busy .logbox'); if (!b) return;
   b.textContent = busyBox.logs.slice(-6).join('\n');
   b.scrollTop = b.scrollHeight;
-  const c = busyBox.calib, k = busyBox.clip;
+  const c = null, k = busyBox.clip;
   const st = $('#busy .status');
-  if (c && st && c.state === 'waiting') st.textContent = `Açılan tarayıcıda: ${c.label}  (${c.index + 1}/${c.total})`;
   if (k && $('#busy .bar i')) $('#busy .bar i').style.width = Math.round(((k.index + (k.state === 'done' ? 1 : 0.3)) / k.total) * 100) + '%';
   if (k && st && !c) st.textContent = `Klip ${k.index + 1}/${k.total} ${k.state === 'done' ? 'tamamlandı' : 'üretiliyor'}`;
 }
 
 async function job(title, fn, { stoppable = false, hint = '' } = {}) {
-  busyBox.logs = []; busyBox.calib = null; busyBox.clip = null;
+  busyBox.logs = []; busyBox.clip = null;
   const el = $('#busy');
   el.replaceChildren(h('div', { class: 'box' },
     h('div', { class: 'spin' }), h('h2', {}, title),
@@ -57,7 +55,7 @@ async function job(title, fn, { stoppable = false, hint = '' } = {}) {
 function errBox(e) {
   const needs = e && e.code === 'NEEDS_CALIBRATION';
   return h('div', { class: 'err-box' }, e.message || String(e),
-    needs ? h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn small', onclick: () => viewSetup() }, 'Kurulum ekranına git')) : null);
+    false ? h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn small', onclick: () => viewSetup() }, 'Kurulum ekranına git')) : null);
 }
 async function safe(fn, host) {
   try { return await fn(); }
@@ -173,9 +171,10 @@ async function viewSetup(first) {
   const err = h('div');
   const provName = st.provider === 'claude' ? 'Claude' : 'ChatGPT';
 
-  const run = (title, name, args, hint) => async () => {
+  const connect = (site, title) => async () => {
     err.replaceChildren();
-    const r = await safe(() => job(title, () => call(name, args), { hint }), err);
+    const r = await safe(() => job(title, () => call('setup.connect', { site }),
+      { hint: 'Açılan Chrome penceresinde gerekirse giriş yapın. Gerisini program yapar.' }), err);
     if (r && r.message) toast(r.message);
     viewSetup(first);
   };
@@ -184,35 +183,24 @@ async function viewSetup(first) {
     h('div', { class: 'dot' }, ok ? '✓' : String(n)),
     h('div', { class: 'body' }, h('h3', {}, title), h('div', { class: 'muted small', style: 'margin-bottom:10px' }, desc), h('div', { class: 'row' }, actions)));
 
-  const flowDone = st.flowCalibrated && st.flowTested;
-  const chatDone = st.chatCalibrated && st.chatTested;
-
   mount(topbar(h('button', { class: 'btn ghost small', onclick: () => (st.ready ? viewHome() : logout()) }, st.ready ? 'Geri' : 'Çıkış')),
     h('div', { class: 'wrap narrow', style: 'max-width:760px' },
-      h('h1', {}, first ? 'Hoş geldiniz! Önce kısa bir kurulum.' : 'Kurulum ve ayarlar'),
-      h('p', { class: 'sub' }, 'Program, sizin bilgisayarınızdaki Chrome üzerinden Google Flow ve yapay zeka sohbetini kullanır. Aşağıdaki adımları bir kez yapmanız yeterli.'),
+      h('h1', {}, first ? 'Hoş geldiniz! Önce kısa bir kurulum.' : 'Bağlantılar'),
+      h('p', { class: 'sub' }, 'Program, bilgisayarınızdaki Chrome üzerinden Google Flow ve yapay zeka sohbetini kullanır. Her biri için sadece "Bağlan" demeniz yeterli. Giriş gerekirse Chrome\'da yaparsınız, gerisini program halleder.'),
       h('div', { class: 'card' },
-        item(1, flowDone, 'Google Flow bağlantısı',
-          'Chrome açılır. Google hesabınızla giriş yapın ve Flow\'da bir proje açın (alttaki yazı kutusu görünsün). Sonra "Düğmeleri öğret" deyin ve ekrandaki yönergelere göre düğmelere sırayla tıklayın.',
-          [
-            h('button', { class: 'btn ghost small', onclick: run('Flow açılıyor', 'setup.open', { site: 'flow' }) }, '1) Flow\'u aç ve giriş yap'),
-            h('button', { class: 'btn small', onclick: run('Düğmeler öğreniliyor', 'setup.calibrate', { site: 'flow' }, 'Açılan Chrome penceresindeki yönergeleri izleyin.') }, st.flowCalibrated ? '2) Yeniden öğret' : '2) Düğmeleri öğret'),
-            h('button', { class: 'btn ghost small', disabled: !st.flowCalibrated, onclick: run('Flow test ediliyor', 'setup.test', { site: 'flow' }) }, '3) Test et'),
-            flowDone ? h('span', { class: 'badge ok' }, 'Hazır') : null
-          ]),
-        item(2, chatDone, 'Prompt yazan yapay zeka (' + provName + ')',
-          'Promptlar İngilizce olarak ' + provName + ' ile otomatik yazdırılır. Hesabınızla giriş yapın, sonra düğmeleri bir kez öğretin.',
-          [
-            chips([{ v: 'chatgpt', t: 'ChatGPT' }, { v: 'claude', t: 'Claude' }], () => st.provider, async (v) => { await call('settings.set', { provider: v }); viewSetup(first); }),
+        item(1, st.flowTested, 'Google Flow',
+          'Chrome açılır, Google hesabınızla giriş yapın (Google AI Pro/Ultra üyeliği gerekir). Program Flow\'u otomatik kontrol eder.',
+          [h('button', { class: 'btn small', onclick: connect('flow', 'Google Flow\'a bağlanılıyor') }, st.flowTested ? 'Yeniden bağlan' : 'Flow\'a bağlan'),
+            st.flowTested ? h('span', { class: 'badge ok' }, 'Hazır') : null]),
+        item(2, st.chatTested, 'Prompt yazan yapay zeka (' + provName + ')',
+          'Promptlar İngilizce olarak ' + provName + ' ile otomatik yazdırılır. Hangisini kullanacağınızı seçin.',
+          [chips([{ v: 'chatgpt', t: 'ChatGPT' }, { v: 'claude', t: 'Claude' }], () => st.provider, async (v) => { await call('settings.set', { provider: v }); viewSetup(first); }),
             h('div', { style: 'flex-basis:100%' }),
-            h('button', { class: 'btn ghost small', onclick: run(provName + ' açılıyor', 'setup.open', { site: st.provider }) }, '1) Siteyi aç ve giriş yap'),
-            h('button', { class: 'btn small', onclick: run('Düğmeler öğreniliyor', 'setup.calibrate', { site: st.provider }, 'Açılan Chrome penceresindeki yönergeleri izleyin.') }, st.chatCalibrated ? '2) Yeniden öğret' : '2) Düğmeleri öğret'),
-            h('button', { class: 'btn ghost small', disabled: !st.chatCalibrated, onclick: run('Sohbet test ediliyor', 'setup.test', { site: st.provider }, 'Kısa bir test mesajı gönderiliyor...') }, '3) Test et'),
-            chatDone ? h('span', { class: 'badge ok' }, 'Hazır') : null
-          ]),
+            h('button', { class: 'btn small', onclick: connect(st.provider, provName + '\'a bağlanılıyor') }, st.chatTested ? 'Yeniden bağlan' : provName + '\'a bağlan'),
+            st.chatTested ? h('span', { class: 'badge ok' }, 'Hazır') : null]),
         h('div', { class: 'check ' + (st.ready ? 'ok' : '') }, h('div', { class: 'dot' }, st.ready ? '✓' : '3'),
           h('div', { class: 'body' }, h('h3', {}, st.ready ? 'Her şey hazır!' : 'Son adım'),
-            h('div', { class: 'muted small', style: 'margin-bottom:10px' }, st.ready ? 'Artık video üretebilirsiniz.' : 'İki bağlantı da test edildiğinde program açılır.'),
+            h('div', { class: 'muted small', style: 'margin-bottom:10px' }, st.ready ? 'Artık video üretebilirsiniz.' : 'İki bağlantı da hazır olunca program açılır.'),
             h('button', { class: 'btn', disabled: !st.ready, onclick: viewHome }, 'Programı kullanmaya başla')))),
       err));
 }
@@ -251,7 +239,7 @@ async function viewSettings() {
       h('div', {}, h('label', { class: 'f' }, 'Videoların kaydedileceği klasör'),
         h('div', { class: 'row' }, h('code', {}, info.outputDir), h('button', { class: 'btn ghost small', onclick: async () => { await call('settings.pickOutput'); viewSettings(); } }, 'Değiştir'))),
       h('div', {}, h('label', { class: 'f' }, 'Bağlantılar'),
-        h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => viewSetup(false) }, 'Kurulum ekranını aç'),
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => viewSetup(false) }, 'Bağlantıları yönet'),
           h('span', { class: 'muted small' }, st.ready ? 'Her şey hazır.' : 'Eksik adımlar var.'))),
       h('div', {}, h('label', { class: 'f' }, 'Hesap'), h('div', { class: 'row' }, h('span', {}, S.user.email), h('button', { class: 'btn danger small', onclick: logout }, 'Çıkış yap'))),
       h('div', { class: 'muted small' }, `AVK Studio sürüm ${info.version} · ${info.platform === 'mac' ? 'Mac' : 'Windows'}`))));
@@ -317,7 +305,7 @@ function characterStep({ title, hint, names, step, next, again }) {
       const j = await call('chat.json', { template: 'characterKit', params: { description: W.desc, hasReference: W.kind === 'photo' }, files: refPaths });
       W.charDesc = j.short_description;
       if (W.kind === 'ready') { W.kit = refPaths[0]; return; }
-      W.kit = await call('flow.image', { prompt: j.prompt, files: W.kind === 'photo' ? refPaths : [], dir, name: 'karakter-kiti.png' });
+      W.kit = await call('flow.image', { prompt: j.prompt, files: W.kind === 'photo' ? refPaths : [], dir, name: 'karakter-kiti.png', aspect: '16:9' });
     }, { stoppable: true, hint: 'Önce prompt yazılır, sonra Flow görseli üretir. Bu 1-3 dakika sürebilir.' }), err);
     if (r !== null) kitPreview();
   };
@@ -568,7 +556,7 @@ function parseCsv(text) {
 async function viewAdmin(tab = 'members') {
   const body = h('div', { class: 'card' }, 'Yükleniyor...');
   const tabs = h('div', { class: 'tabs' },
-    ['members:Üyeler', 'import:CSV yükle', 'config:Uzaktan ayar'].map((t) => { const [k, n] = t.split(':'); return h('button', { class: tab === k ? 'on' : '', onclick: () => viewAdmin(k) }, n); }));
+    ['members:Üyeler', 'import:CSV yükle'].map((t) => { const [k, n] = t.split(':'); return h('button', { class: tab === k ? 'on' : '', onclick: () => viewAdmin(k) }, n); }));
   mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Geri')), h('div', { class: 'wrap' }, h('h1', {}, 'Yönetici paneli'), tabs, body));
   const err = h('div');
   if (tab === 'members') {
@@ -604,7 +592,7 @@ async function viewAdmin(tab = 'members') {
     body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Skool üye listesini yükleyin'),
       h('p', { class: 'sub', style: 'margin:0' }, 'Skool\'dan indirdiğiniz CSV dosyasını seçin. İçindeki e-postalar otomatik üye olur.'),
       h('button', { class: 'btn', onclick: pick }, 'CSV dosyası seç'), out, err));
-  } else {
+  } else if (false) {
     const ta = h('textarea', { style: 'min-height:240px;font-family:monospace;font-size:13px', placeholder: '[ {"key":"promptBox","label":"..."}, ... ]' });
     body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Düğme listesini uzaktan güncelle'),
       h('p', { class: 'sub', style: 'margin:0' }, 'Google Flow arayüzü değişirse, kalibrasyon adım listesini buradan tüm üyelere gönderebilirsiniz (JSON). Üyeler bir sonraki kalibrasyonda yeni listeyi kullanır.'),

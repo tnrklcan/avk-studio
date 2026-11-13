@@ -1,6 +1,6 @@
 # TODO - AVK Studio
 **Son güncelleme:** 14 Kasım 2026
-**Devam eden iş:** Electron masaüstü programı (Mac+Windows). İskelet, arayüz, giriş, admin, 4 mod, otomasyon kodu yazıldı.
+**Devam eden iş:** Kalibrasyonsuz otomatik Flow/ChatGPT bağlantısı yazıldı; Flow görsel üretimi canlı doğrulandı. Sırada: ChatGPT/Claude canlı test, video üretim testi (~24 kredi), v0.1.1 yayını.
 ## Yapıldı
 - Arayüz + 4 mod sihirbazı + admin paneli → src/app.js, styles.css
 - Supabase şeması (üye listesi, CSV içe aktarma, uzaktan ayar) → supabase/schema.sql
