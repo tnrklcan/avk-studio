@@ -147,9 +147,9 @@ const api = {
     return chat.askJson(providerOf(), T[template](params || {}), files || [], { log });
   },
   'flow.image': ({ prompt, files, dir, name, aspect }) => pipeline.makeImage({ prompt, files, dir, name, aspect, log, provider: providerOf() }),
-  'flow.clips': async ({ clips, refs, chain, startFrame, seconds, dir, title }) => {
+  'flow.clips': async ({ clips, refs, chain, startFrame, seconds, aspect, dir, title }) => {
     const res = await pipeline.runClips({
-      clips, refs, chain, startFrame, seconds, dir, title, provider: providerOf(), log,
+      clips, refs, chain, startFrame, seconds, aspect, dir, title, provider: providerOf(), log,
       progress: (p) => emit({ type: 'clip', ...p })
     });
     const old = (store.get('projects') || []).find((x) => x.id === dir);

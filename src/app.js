@@ -386,8 +386,14 @@ function viewResult(res, back) {
 let W = null;
 function startMode(id) {
   call('task.start').catch(() => {}); // yeni görev: yeni Flow projesi ve yeni sohbet, görev boyunca aynıları kullanılır
-  W = { id, step: 0, files: { ref: [], product: [] }, desc: '', kind: 'photo', nav: [], dir: null };
+  W = { id, step: 0, files: { ref: [], product: [] }, desc: '', kind: 'photo', nav: [], dir: null, aspect: '9:16' };
   ({ ugc: wUgc, product: wProduct, history: wHistory, cine: wCine })[id]();
+}
+// Video yönü seçici (dikey 9:16 / yatay 16:9)
+function aspectPicker() {
+  return h('div', {}, h('label', { class: 'f' }, 'Video yönü'),
+    chips([{ v: '9:16', t: '📱 Dikey (9:16)' }, { v: '16:9', t: '🖥️ Yatay (16:9)' }], () => W.aspect, (v) => { W.aspect = v; }),
+    h('div', { class: 'hint' }, 'Dikey: Reels, TikTok, Shorts. Yatay: YouTube, sunum, TV.'));
 }
 const charRef = () => (W.kind === 'avatar' ? 'flow:avatar' : W.kit);
 const wFrame = (title, names, step, body) => mount(
@@ -447,7 +453,7 @@ function characterStep(opts) {
         h('button', { class: 'btn ghost', onclick: () => { W.kit = null; W.kitDone = false; self(); } }, 'Yeniden üret')))));
   }
   wFrame(title, names, 0, h('div', { class: 'card stack' },
-    h('h2', {}, 'Karakteriniz kim?'), kindBox,
+    h('h2', {}, 'Karakteriniz kim?'), kindBox, aspectPicker(),
     h('button', { class: 'btn', onclick: go }, W.kind === 'ready' ? 'Devam et' : 'Karakter kitini oluştur'), err));
 }
 
@@ -464,7 +470,7 @@ function clipsReview(args) {
     err.replaceChildren();
     const r = await safe(() => job('Videonuz üretiliyor', async () => {
       const dir = await ensureDir(W.title || 'Video');
-      return call('flow.clips', { clips, refs, chain, startFrame, dir, title: W.title || 'video' });
+      return call('flow.clips', { clips, refs, chain, startFrame, aspect: W.aspect, dir, title: W.title || 'video' });
     }, { stoppable: true, hint: 'Her klip birkaç dakika sürer. Chrome penceresini kapatmayın.' }), err);
     if (r) { notify('ok', 'Videonuz hazır 🎉', W.title || ''); onDone(r); }
   };
@@ -493,7 +499,7 @@ function wUgc() {
           W.script = script.value.trim(); W.note = note.value;
           if (W.script.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen konuyu biraz daha yazın.'));
           const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
-            template: 'ugcScenes', params: { characterDesc: W.charDesc, script: W.script, hasProduct: W.files.product.length > 0, productNote: note.value },
+            template: 'ugcScenes', params: { characterDesc: W.charDesc, script: W.script, hasProduct: W.files.product.length > 0, productNote: note.value, aspect: W.aspect },
             files: [W.kit, ...W.files.product.map((f) => f.path)]
           }), { hint: 'Yapay zeka senaryonuzu klip klip planlıyor...' }), err);
           if (!r) return;
@@ -522,11 +528,12 @@ function wProduct() {
     h('h2', {}, 'Ürün görselleriniz'), fileDrop({ multi: true, files: W.files.product, label: 'Ürün fotoğraflarını seçin (1-4 adet)' }), note,
     h('div', {}, h('label', { class: 'f' }, 'Nasıl bir tarz istersiniz?'), chips(STYLES.map((s) => ({ v: s, t: s })), () => W.style, (v) => { W.style = v; custom.value = ''; }), h('div', { style: 'margin-top:10px' }, custom)),
     h('div', {}, h('label', { class: 'f' }, 'Kaç sahne?'), chips([2, 3, 4].map((n) => ({ v: n, t: n + ' sahne' })), () => W.count, (v) => { W.count = v; })),
+    aspectPicker(),
     h('button', {
       class: 'btn', onclick: async () => {
         if (!W.files.product.length) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen en az bir ürün görseli seçin.'));
         const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
-          template: 'productShots', params: { style: custom.value.trim() || W.style, productNote: note.value, count: W.count }, files: W.files.product.map((f) => f.path)
+          template: 'productShots', params: { style: custom.value.trim() || W.style, productNote: note.value, count: W.count, aspect: W.aspect }, files: W.files.product.map((f) => f.path)
         })), err);
         if (!r) return;
         W.title = r.title || 'Ürün Tanıtımı';
@@ -563,7 +570,7 @@ function wHistory() {
           W.story = story.value.trim();
           if (W.story.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen bir hikaye yazın veya öneriden seçin.'));
           const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
-            template: 'historyScenes', params: { characterDesc: W.charDesc, story: W.story, clipCount: W.count }, files: [W.kit]
+            template: 'historyScenes', params: { characterDesc: W.charDesc, story: W.story, clipCount: W.count, aspect: W.aspect }, files: [W.kit]
           })), err);
           if (!r) return;
           W.title = r.title || 'Zaman Yolculuğu';
@@ -584,7 +591,7 @@ function wCine() {
     const idea = h('textarea', { placeholder: 'Hayalinizdeki karakteri yazın. Örn: Ayda savaşan fütüristik bir Türk askeri. Kararlı bakışlı, 35 yaşında.' });
     idea.value = W.idea || '';
     wFrame('Sinematik Film', names, 0, h('div', { class: 'card stack' },
-      h('h2', {}, 'Karakterinizi hayal edin'), idea,
+      h('h2', {}, 'Karakterinizi hayal edin'), idea, aspectPicker(),
       h('div', {}, h('label', { class: 'f' }, 'Referans görsel (isteğe bağlı)'), fileDrop({ files: W.files.ref })),
       h('button', {
         class: 'btn', onclick: async () => {
@@ -593,9 +600,9 @@ function wCine() {
           const refs = W.files.ref.map((f) => f.path);
           const r = await safe(() => job('Karakteriniz oluşturuluyor', async () => {
             const dir = await ensureDir('Sinematik');
-            const j = await call('chat.json', { template: 'cinematicCharacter', params: { idea: W.idea }, files: refs });
+            const j = await call('chat.json', { template: 'cinematicCharacter', params: { idea: W.idea, aspect: W.aspect }, files: refs });
             W.charDesc = j.short_description;
-            W.kit = await call('flow.image', { prompt: j.prompt, files: refs, dir, name: 'karakter.png' });
+            W.kit = await call('flow.image', { prompt: j.prompt, files: refs, dir, name: 'karakter.png', aspect: W.aspect });
           }, { stoppable: true, hint: 'Önce sahne promptu yazılır, sonra Flow görseli üretir.' }), err);
           if (r !== null) { notify('ok', 'Karakteriniz hazır', 'Beğenip hikayeye geçebilirsiniz.'); preview(); }
         }
@@ -630,7 +637,7 @@ function wCine() {
             const sb = await call('chat.json', { template: 'cinematicStoryboard', params: { characterDesc: W.charDesc, story: W.story }, files: [W.kit] });
             // Karakter görseli Flow'da zaten var: kütüphaneden referans olarak eklenir
             const sbImg = await call('flow.image', { prompt: sb.storyboard_image_prompt, files: [W.kit], dir, name: 'storyboard-1.png', aspect: '16:9' });
-            const vp = await call('chat.json', { template: 'cinematicVideo', params: { characterDesc: W.charDesc, panels: sb.panels, isContinuation: false }, files: [W.kit, sbImg] });
+            const vp = await call('chat.json', { template: 'cinematicVideo', params: { characterDesc: W.charDesc, panels: sb.panels, isContinuation: false, aspect: W.aspect }, files: [W.kit, sbImg] });
             return { sb, sbImg, vp };
           }, { stoppable: true, hint: 'Storyboard planlanıyor, görseli Flow\'da üretiliyor ve 15 saniyelik video promptu yazılıyor...' }), err);
           if (!r) return;
@@ -665,7 +672,7 @@ function wCine() {
         const nx = await call('chat.json', { template: 'cinematicStoryboardNext', params: { characterDesc: W.charDesc, storySoFar: W.storyLog, prevPanels: W.prevPanels, userDirection: dirInput.value.trim() }, files: [W.lastSb] });
         // Karakter görseli ve önceki storyboard Flow kütüphanesinden referans olarak eklenir
         const sbImg = await call('flow.image', { prompt: nx.storyboard_image_prompt, files: [W.kit, W.lastSb], dir: W.dir, name: `storyboard-${(W.part || 1) + 1}.png`, aspect: '16:9' });
-        const vp = await call('chat.json', { template: 'cinematicVideo', params: { characterDesc: W.charDesc, panels: nx.panels, isContinuation: true }, files: [W.kit, sbImg, lastFrame] });
+        const vp = await call('chat.json', { template: 'cinematicVideo', params: { characterDesc: W.charDesc, panels: nx.panels, isContinuation: true, aspect: W.aspect }, files: [W.kit, sbImg, lastFrame] });
         return { nx, sbImg, vp, lastFrame };
       }, { stoppable: true, hint: 'Devam storyboard\'u üretiliyor ve 15 saniyelik video promptu yazılıyor...' }), err);
       if (!r) return;
