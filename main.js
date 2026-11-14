@@ -11,6 +11,9 @@ const T = require('./lib/templates');
 const pipeline = require('./lib/pipeline');
 
 let win = null;
+app.setName('AVK Sinema');
+// Oturum/giriş bilgileri eski klasörde kalsın (ad değişse de yeniden giriş gerekmesin)
+if (!process.env.AVK_TEST) app.setPath('userData', path.join(app.getPath('appData'), 'AVK Studio'));
 const emit = (evt) => { if (win && !win.isDestroyed()) win.webContents.send('evt', evt); };
 const log = (m) => emit({ type: 'log', message: m });
 
@@ -20,7 +23,7 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 function createWindow() {
   win = new BrowserWindow({
     width: 1180, height: 780, minWidth: 900, minHeight: 640,
-    title: 'AVK Studio',
+    title: 'AVK Sinema',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#FBF7F2',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, autoplayPolicy: 'no-user-gesture-required' }
@@ -144,14 +147,15 @@ const api = {
     return chat.askJson(providerOf(), T[template](params || {}), files || [], { log });
   },
   'flow.image': ({ prompt, files, dir, name, aspect }) => pipeline.makeImage({ prompt, files, dir, name, aspect, log, provider: providerOf() }),
-  'flow.clips': async ({ clips, refs, chain, startFrame, dir, title }) => {
+  'flow.clips': async ({ clips, refs, chain, startFrame, seconds, dir, title }) => {
     const res = await pipeline.runClips({
-      clips, refs, chain, startFrame, dir, title, provider: providerOf(), log,
+      clips, refs, chain, startFrame, seconds, dir, title, provider: providerOf(), log,
       progress: (p) => emit({ type: 'clip', ...p })
     });
     if (!store.updateProject(dir, { title, final: res.final, date: new Date().toISOString() })) store.addProject({ id: dir, title, dir, final: res.final, date: new Date().toISOString() });
     return res;
   },
+  'video.lastFrame': async ({ file, dir }) => require('./lib/stitch').lastFrame(file, path.join(dir, `son-kare-${Date.now().toString(36)}.jpg`)),
   'video.merge': ({ files, dir, title }) => pipeline.merge({ files, dir, title }),
   'job.cancel': () => { pipeline.cancel(); return true; },
   'projects.list': () => store.get('projects').filter((p) => p.final && fs.existsSync(p.final)),
@@ -182,6 +186,7 @@ ipcMain.handle('api', async (_e, name, args) => {
 
 app.whenReady().then(() => {
   store.init(app.getPath('userData'));
+  if (process.platform === 'darwin' && app.dock) { try { app.dock.setIcon(path.join(__dirname, 'assets', 'icon.png')); } catch (_) { /* sessiz */ } }
   createWindow();
   setTimeout(checkUpdate, 4000);
   setInterval(checkUpdate, 4 * 3600 * 1000);

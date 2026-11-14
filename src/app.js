@@ -46,7 +46,7 @@ function notify(kind, title, text) {
   saveNotes(n);
   chime(kind);
   toast(title);
-  call('notify', { title: 'AVK Studio · ' + title, body: text || '' }).catch(() => {});
+  call('notify', { title: 'AVK Sinema · ' + title, body: text || '' }).catch(() => {});
   refreshBell();
 }
 function bellEl() {
@@ -323,7 +323,7 @@ async function viewSettings() {
         h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => viewSetup(false) }, 'Bağlantıları yönet'),
           h('span', { class: 'muted small' }, st.ready ? 'Her şey hazır.' : 'Eksik adımlar var.'))),
       h('div', {}, h('label', { class: 'f' }, 'Hesap'), h('div', { class: 'row' }, h('span', {}, S.user.email), h('button', { class: 'btn danger small', onclick: logout }, 'Çıkış yap'))),
-      h('div', { class: 'muted small' }, `AVK Studio sürüm ${info.version} · ${info.platform === 'mac' ? 'Mac' : 'Windows'}`))));
+      h('div', { class: 'muted small' }, `AVK Sinema sürüm ${info.version} · ${info.platform === 'mac' ? 'Mac' : 'Windows'}`))));
 }
 
 // ---------- kütüphane ----------
@@ -582,6 +582,14 @@ function wCine() {
     wFrame('Sinematik Film', names, 0, h('div', { class: 'card stack' }, h('h2', {}, 'Karakteriniz'), h('img', { class: 'preview', src: du }), h('p', { class: 'muted small' }, W.charDesc),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: step2 }, 'Beğendim, hikayeye geç'), h('button', { class: 'btn ghost', onclick: () => { W.kit = null; step1(); } }, 'Yeniden üret'))));
   };
+  const boardView = async (panels, sbImg, note) => {
+    const sbUrl = sbImg ? await call('files.dataUrl', { path: sbImg }) : null;
+    return h('div', { class: 'stack' },
+      sbUrl ? h('img', { class: 'preview', src: sbUrl }) : null,
+      h('table', {}, h('tr', {}, h('th', {}, 'Zaman'), h('th', {}, 'Plan')),
+        ...panels.map((p) => h('tr', {}, h('td', {}, p.time), h('td', {}, h('b', {}, p.title + ': '), p.action)))),
+      h('p', { class: 'hint' }, note || 'Video 15 saniye olarak üretilir (Flow\'da yaklaşık 60 kredi). Karakter görseli ve bu storyboard referans olarak eklenir.'));
+  };
   const step2 = () => {
     W.nav[1] = step2;
     const err = h('div');
@@ -594,48 +602,52 @@ function wCine() {
           W.story = story.value.trim();
           if (W.story.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen hikayeyi bir cümleyle yazın.'));
           const r = await safe(() => job('Storyboard hazırlanıyor', async () => {
+            const dir = await ensureDir('Sinematik');
             const sb = await call('chat.json', { template: 'cinematicStoryboard', params: { characterDesc: W.charDesc, story: W.story }, files: [W.kit] });
-            const cl = await call('chat.json', { template: 'cinematicClips', params: { characterDesc: W.charDesc, panels: sb.panels } });
-            let sbImg = null;
-            try {
-              sbImg = await call('flow.image', { prompt: sb.storyboard_image_prompt, files: [W.kit], dir: await ensureDir('Sinematik'), name: 'storyboard.png', aspect: '16:9' });
-            } catch (e) { if (e.code === 'CANCELLED') throw e; notify('error', 'Storyboard görseli üretilemedi', e.message); }
-            return { sb, cl, sbImg };
-          }, { stoppable: true, hint: 'Storyboard planlanıyor, görseli Flow\'da üretiliyor ve video sahneleri yazılıyor...' }), err);
+            // Karakter görseli Flow'da zaten var: kütüphaneden referans olarak eklenir
+            const sbImg = await call('flow.image', { prompt: sb.storyboard_image_prompt, files: [W.kit], dir, name: 'storyboard-1.png', aspect: '16:9' });
+            const vp = await call('chat.json', { template: 'cinematicVideo', params: { characterDesc: W.charDesc, panels: sb.panels, isContinuation: false }, files: [W.kit, sbImg] });
+            return { sb, sbImg, vp };
+          }, { stoppable: true, hint: 'Storyboard planlanıyor, görseli Flow\'da üretiliyor ve 15 saniyelik video promptu yazılıyor...' }), err);
           if (!r) return;
-          W.title = 'Sinematik Film'; W.storyLog = W.story;
-          notify('ok', 'Storyboard hazır', 'Sahneleri inceleyip videoyu üretebilirsiniz.');
-          const sbUrl = r.sbImg ? await call('files.dataUrl', { path: r.sbImg }) : null;
-          const board = h('div', { class: 'stack' },
-            sbUrl ? h('img', { class: 'preview', src: sbUrl }) : null,
-            h('table', {}, h('tr', {}, h('th', {}, 'Zaman'), h('th', {}, 'Plan')),
-              ...r.sb.panels.map((p) => h('tr', {}, h('td', {}, p.time), h('td', {}, h('b', {}, p.title + ': '), p.action)))));
+          W.title = 'Sinematik Film'; W.storyLog = W.story; W.part = 1; W.lastSb = r.sbImg; W.prevPanels = r.sb.panels;
+          notify('ok', 'Storyboard hazır', 'Sahneyi inceleyip videoyu üretebilirsiniz.');
           clipsReview({
-            title: 'Sinematik Film', names, step: 2, clips: r.cl.clips, refs: [W.kit], chain: true, extraTop: board,
+            title: 'Sinematik Film', names, step: 2, clips: [{ seconds: 15, turkish_line: '', prompt: r.vp.prompt }],
+            refs: [W.kit, r.sbImg], chain: false, extraTop: await boardView(r.sb.panels, r.sbImg),
             onDone: (x) => { W.allClips = x.clips; W.final = x.final; step4(x); }
           });
         }
-      }, 'Storyboard ve sahneleri hazırla'), err));
+      }, 'Storyboard ve sahneyi hazırla'), err));
   };
-  // Hikayeyi devam ettirme: aynı Flow projesinde, son kareden devam eder
+  // Hikayeyi devam ettirme: ilk storyboard'un devamı olan yeni storyboard + 15 sn video, aynı Flow projesinde
   const step4 = (res) => {
     W.nav[3] = () => step4(res);
     const err = h('div');
-    const dir = h('textarea', { style: 'min-height:90px', placeholder: 'Sonraki bölüm nasıl devam etsin? (boş bırakırsanız yapay zeka karar verir)' });
+    const dirInput = h('textarea', { style: 'min-height:90px', placeholder: 'Sonraki bölüm nasıl devam etsin? (boş bırakırsanız yapay zeka karar verir)' });
     const ideas = h('div', { class: 'chips' });
     const suggest = async () => {
       const r = await safe(() => job('Fikirler aranıyor', () => call('chat.json', { template: 'nextStoryIdeas', params: { storySoFar: W.storyLog } })), err);
-      if (r) ideas.replaceChildren(...r.options.map((o) => h('button', { class: 'chip', onclick: () => { dir.value = o; } }, o)));
+      if (r) ideas.replaceChildren(...r.options.map((o) => h('button', { class: 'chip', onclick: () => { dirInput.value = o; } }, o)));
     };
     const more = async () => {
-      const r = await safe(() => job('Devam bölümü hazırlanıyor', () => call('chat.json', {
-        template: 'continueStory', params: { characterDesc: W.charDesc, storySoFar: W.storyLog, userDirection: dir.value.trim() }
-      })), err);
+      const r = await safe(() => job('Devam storyboard\'u hazırlanıyor', async () => {
+        const lastFrame = await call('video.lastFrame', { file: W.allClips[W.allClips.length - 1], dir: W.dir });
+        const nx = await call('chat.json', { template: 'cinematicStoryboardNext', params: { characterDesc: W.charDesc, storySoFar: W.storyLog, prevPanels: W.prevPanels, userDirection: dirInput.value.trim() }, files: [W.lastSb] });
+        // Karakter görseli ve önceki storyboard Flow kütüphanesinden referans olarak eklenir
+        const sbImg = await call('flow.image', { prompt: nx.storyboard_image_prompt, files: [W.kit, W.lastSb], dir: W.dir, name: `storyboard-${(W.part || 1) + 1}.png`, aspect: '16:9' });
+        const vp = await call('chat.json', { template: 'cinematicVideo', params: { characterDesc: W.charDesc, panels: nx.panels, isContinuation: true }, files: [W.kit, sbImg, lastFrame] });
+        return { nx, sbImg, vp, lastFrame };
+      }, { stoppable: true, hint: 'Devam storyboard\'u üretiliyor ve 15 saniyelik video promptu yazılıyor...' }), err);
       if (!r) return;
-      W.storyLog += ' | ' + (r.summary_tr || dir.value);
-      const startFrame = W.allClips[W.allClips.length - 1];
+      W.part = (W.part || 1) + 1;
+      W.storyLog += ' | ' + (r.nx.summary_tr || dirInput.value);
+      const prevSb = W.lastSb; W.lastSb = r.sbImg; W.prevPanels = r.nx.panels;
+      notify('ok', 'Devam storyboard\'u hazır', 'Sahneyi inceleyip videoyu üretebilirsiniz.');
       clipsReview({
-        title: 'Hikayeyi devam ettir', names, step: 2, clips: r.clips, refs: [W.kit], chain: true, startFrame,
+        title: 'Hikayeyi devam ettir', names, step: 2, clips: [{ seconds: 15, turkish_line: '', prompt: r.vp.prompt }],
+        refs: [W.kit, r.sbImg, r.lastFrame], chain: false,
+        extraTop: await boardView(r.nx.panels, r.sbImg, 'Bu storyboard öncekinin devamıdır. Referanslar: karakter, bu storyboard ve önceki klibin son karesi. Video 15 saniye (yaklaşık 60 kredi).'),
         onDone: async (x) => {
           W.allClips = [...W.allClips, ...x.clips];
           const merged = await safe(() => job('Tüm hikaye birleştiriliyor', () => call('video.merge', { files: W.allClips, dir: W.dir, title: 'Tum-Hikaye' })));
@@ -650,8 +662,8 @@ function wCine() {
         h('video', { class: 'player', controls: true, src: 'file://' + encodeURI(res.final).replace(/#/g, '%23') }),
         h('div', { class: 'row' }, h('button', { class: 'btn ghost', onclick: () => call('files.reveal', { path: res.final }) }, 'Klasörde göster'))),
       h('div', { class: 'card stack', style: 'margin-top:20px' },
-        h('h2', {}, 'Hikaye burada bitmesin 🚀'), h('p', { class: 'sub', style: 'margin:0' }, 'İstediğiniz kadar uzatabilirsiniz. Her bölüm öncekinin son karesinden, aynı Flow projesinde devam eder.'),
-        dir, h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: suggest }, '✨ Bana fikir ver'), ideas),
+        h('h2', {}, 'Hikaye burada bitmesin 🚀'), h('p', { class: 'sub', style: 'margin:0' }, 'İstediğiniz kadar uzatabilirsiniz. Her bölüm için öncekinin devamı olan yeni bir storyboard ve 15 saniyelik video üretilir.'),
+        dirInput, h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: suggest }, '✨ Bana fikir ver'), ideas),
         h('button', { class: 'btn', onclick: more }, 'Hikayeyi devam ettir'), err)));
   };
   step1();
