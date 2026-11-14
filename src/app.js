@@ -329,6 +329,7 @@ async function viewSettings() {
 // ---------- kütüphane ----------
 async function viewLibrary() {
   const list = await call('projects.list');
+  const picked = []; // seçim sırası = birleştirme sırası
   const delOne = async (p) => {
     if (!(await confirmBox({ title: 'Videoyu sil', text: `"${p.title || 'Video'}" ile ilgili tüm dosyalar (klipler, karakter görseli, storyboard) bilgisayarınızdan silinecek. Silmek istediğinize emin misiniz?` }))) return;
     await safe(() => call('projects.delete', { id: p.id })); toast('Silindi'); viewLibrary();
@@ -337,16 +338,39 @@ async function viewLibrary() {
     if (!(await confirmBox({ title: 'Tüm dosyaları sil', text: 'Tüm dosyalar silinecek. Üretilen bütün videolar, karakter kitleri ve görseller bilgisayarınızdan kalıcı olarak kaldırılır. Silmek istediğinize emin misiniz?', ok: 'Hepsini sil' }))) return;
     await safe(() => call('projects.deleteAll')); toast('Tüm dosyalar silindi'); viewLibrary();
   };
+  const smooth = h('input', { type: 'checkbox', checked: true });
+  const bar = h('div', { class: 'card stack', style: 'margin-bottom:18px' });
+  const drawBar = () => {
+    bar.replaceChildren(
+      h('div', {}, h('b', {}, 'Render: videoları tek filmde birleştirin'),
+        h('div', { class: 'muted small' }, picked.length ? `${picked.length} video seçildi (seçim sırasıyla birleşir)` : 'Aşağıdan birleştirmek istediğiniz videoları seçin.')),
+      h('label', { class: 'row small' }, smooth, 'Yumuşak geçiş (akışı bozmadan, doğal devam eder)'),
+      h('button', { class: 'btn', disabled: picked.length < 1, onclick: async () => {
+        const files = picked.flatMap((p) => (p.parts && p.parts.length ? p.parts : [p.final]));
+        const out = await safe(() => job('Render alınıyor', () => call('video.render', { files, title: 'Film', smooth: smooth.checked }), { hint: 'Videolar birleştiriliyor, birkaç dakika sürebilir.' }));
+        if (out) { notify('ok', 'Render hazır 🎬', 'Birleşik film kaydedildi.'); viewResult({ final: out, title: 'Film' }, viewLibrary); }
+      } }, 'Render al'));
+  };
+  const cards = list.map((p) => {
+    const cb = h('input', { type: 'checkbox', style: 'width:20px;height:20px', onchange: () => {
+      const i = picked.indexOf(p);
+      if (cb.checked && i < 0) picked.push(p); else if (!cb.checked && i >= 0) picked.splice(i, 1);
+      drawBar(); num.textContent = picked.indexOf(p) >= 0 ? '#' + (picked.indexOf(p) + 1) : '';
+    } });
+    const num = h('span', { class: 'badge run' }, '');
+    return h('div', { class: 'card row', style: 'justify-content:space-between' },
+      h('div', { class: 'row' }, cb, h('div', {}, h('h3', { style: 'margin:0' }, p.title || 'Video'),
+        h('div', { class: 'muted small' }, new Date(p.date).toLocaleString('tr-TR') + (p.parts && p.parts.length > 1 ? ` · ${p.parts.length} klip` : '')))),
+      h('div', { class: 'row' }, num,
+        h('button', { class: 'btn small', onclick: () => viewResult({ final: p.final, dir: p.dir, title: p.title }, viewLibrary) }, 'İzle'),
+        h('button', { class: 'btn ghost small', onclick: () => call('files.reveal', { path: p.final || p.dir }) }, 'Klasörde göster'),
+        h('button', { class: 'btn danger small', onclick: () => delOne(p) }, 'Sil')));
+  });
+  drawBar();
   mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Geri')), h('div', { class: 'wrap' },
     h('div', { class: 'row', style: 'justify-content:space-between' }, h('h1', {}, 'Videolarım'),
       list.length ? h('button', { class: 'btn danger small', onclick: delAll }, 'Tüm dosyaları sil') : null),
-    list.length ? h('div', { class: 'stack' }, list.map((p) => h('div', { class: 'card row', style: 'justify-content:space-between' },
-      h('div', {}, h('h3', { style: 'margin:0' }, p.title || 'Video'), h('div', { class: 'muted small' }, new Date(p.date).toLocaleString('tr-TR'))),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn small', onclick: () => viewResult({ final: p.final, dir: p.dir, title: p.title }, viewLibrary) }, 'İzle'),
-        h('button', { class: 'btn ghost small', onclick: () => call('files.reveal', { path: p.final || p.dir }) }, 'Klasörde göster'),
-        h('button', { class: 'btn danger small', onclick: () => delOne(p) }, 'Sil')))))
-      : h('p', { class: 'sub' }, 'Henüz video üretmediniz.')));
+    list.length ? h('div', {}, bar, h('div', { class: 'stack' }, cards)) : h('p', { class: 'sub' }, 'Henüz video üretmediniz.')));
 }
 
 function viewResult(res, back) {
@@ -624,6 +648,11 @@ function wCine() {
   const step4 = (res) => {
     W.nav[3] = () => step4(res);
     const err = h('div');
+    const renderSmooth = h('input', { type: 'checkbox', checked: true });
+    const renderAll = async () => {
+      const out = await safe(() => job('Render alınıyor', () => call('video.render', { files: W.allClips, title: 'Sinematik Film', smooth: renderSmooth.checked }), { hint: 'Bölümler birleştiriliyor, birkaç dakika sürebilir.' }), err);
+      if (out) { notify('ok', 'Render hazır 🎬', 'Birleşik film kaydedildi.'); viewResult({ final: out, title: 'Sinematik Film' }, () => step4(res)); }
+    };
     const dirInput = h('textarea', { style: 'min-height:90px', placeholder: 'Sonraki bölüm nasıl devam etsin? (boş bırakırsanız yapay zeka karar verir)' });
     const ideas = h('div', { class: 'chips' });
     const suggest = async () => {
@@ -648,11 +677,7 @@ function wCine() {
         title: 'Hikayeyi devam ettir', names, step: 2, clips: [{ seconds: 15, turkish_line: '', prompt: r.vp.prompt }],
         refs: [W.kit, r.sbImg, r.lastFrame], chain: false,
         extraTop: await boardView(r.nx.panels, r.sbImg, 'Bu storyboard öncekinin devamıdır. Referanslar: karakter, bu storyboard ve önceki klibin son karesi. Video 15 saniye (yaklaşık 60 kredi).'),
-        onDone: async (x) => {
-          W.allClips = [...W.allClips, ...x.clips];
-          const merged = await safe(() => job('Tüm hikaye birleştiriliyor', () => call('video.merge', { files: W.allClips, dir: W.dir, title: 'Tum-Hikaye' })));
-          step4({ clips: W.allClips, final: merged || x.final });
-        }
+        onDone: (x) => { W.allClips = [...W.allClips, ...x.clips]; step4({ clips: W.allClips, final: x.final }); }
       });
     };
     mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Ana sayfa')), h('div', { class: 'wrap narrow', style: 'max-width:820px' },
@@ -660,7 +685,14 @@ function wCine() {
       h('h1', {}, 'Filminiz hazır 🎬'), stepper(names, 3),
       h('div', { class: 'card stack' },
         h('video', { class: 'player', controls: true, src: 'file://' + encodeURI(res.final).replace(/#/g, '%23') }),
-        h('div', { class: 'row' }, h('button', { class: 'btn ghost', onclick: () => call('files.reveal', { path: res.final }) }, 'Klasörde göster'))),
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost', onclick: () => call('files.reveal', { path: res.final }) }, 'Klasörde göster')),
+        h('div', { class: 'row small muted' }, `${W.allClips.length} bölüm üretildi. Bölümler: `,
+          ...W.allClips.map((f, i) => h('button', { class: 'btn ghost small', onclick: () => step4({ clips: W.allClips, final: f }) }, 'Bölüm ' + (i + 1))))),
+      h('div', { class: 'card stack', style: 'margin-top:20px' },
+        h('h2', {}, 'Render: tüm bölümleri tek filmde birleştir 🎞️'),
+        h('p', { class: 'sub', style: 'margin:0' }, 'Bölümler, akışı bozmadan birleştirilir: bir önceki bölümün son karesi ile sonraki bölümün başı yumuşak geçişle (görüntü ve ses) birbirine eklenir.'),
+        h('label', { class: 'row small' }, renderSmooth, 'Yumuşak geçiş (önerilen)'),
+        h('button', { class: 'btn', onclick: renderAll }, 'Render al (tek video)')),
       h('div', { class: 'card stack', style: 'margin-top:20px' },
         h('h2', {}, 'Hikaye burada bitmesin 🚀'), h('p', { class: 'sub', style: 'margin:0' }, 'İstediğiniz kadar uzatabilirsiniz. Her bölüm için öncekinin devamı olan yeni bir storyboard ve 15 saniyelik video üretilir.'),
         dirInput, h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: suggest }, '✨ Bana fikir ver'), ideas),

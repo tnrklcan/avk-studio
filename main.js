@@ -152,10 +152,22 @@ const api = {
       clips, refs, chain, startFrame, seconds, dir, title, provider: providerOf(), log,
       progress: (p) => emit({ type: 'clip', ...p })
     });
-    if (!store.updateProject(dir, { title, final: res.final, date: new Date().toISOString() })) store.addProject({ id: dir, title, dir, final: res.final, date: new Date().toISOString() });
+    const old = (store.get('projects') || []).find((x) => x.id === dir);
+    const parts = [...((old && old.parts) || []), ...res.clips];
+    if (!store.updateProject(dir, { title, final: res.final, parts, date: new Date().toISOString() })) store.addProject({ id: dir, title, dir, final: res.final, parts, date: new Date().toISOString() });
     return res;
   },
   'video.lastFrame': async ({ file, dir }) => require('./lib/stitch').lastFrame(file, path.join(dir, `son-kare-${Date.now().toString(36)}.jpg`)),
+  'video.render': async ({ files, title, smooth }) => {
+    const missing = files.filter((f) => !fs.existsSync(f));
+    if (missing.length) throw new Error('Bazı video dosyaları bulunamadı (silinmiş olabilir).');
+    const dir = pipeline.projectDir('Render ' + (title || 'Film'));
+    const out = path.join(dir, `${(title || 'Film').replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'Film'}-render.mp4`);
+    log(`${files.length} video birleştiriliyor (${smooth === false ? 'düz kesme' : 'yumuşak geçiş'})...`);
+    await require('./lib/stitch').render(files, out, { smooth: smooth !== false });
+    store.updateProject(dir, { title: (title || 'Film') + ' (render)', final: out, parts: [out], date: new Date().toISOString() });
+    return out;
+  },
   'video.merge': ({ files, dir, title }) => pipeline.merge({ files, dir, title }),
   'job.cancel': () => { pipeline.cancel(); return true; },
   'projects.list': () => store.get('projects').filter((p) => p.final && fs.existsSync(p.final)),
