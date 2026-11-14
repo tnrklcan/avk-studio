@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, Menu, Notificat
 const path = require('path');
 const fs = require('fs');
 
+// Programın içindeki hazır Chromium (Mac sürümünde gömülü gelir)
+process.env.PLAYWRIGHT_BROWSERS_PATH = app.isPackaged ? path.join(process.resourcesPath, 'browsers') : path.join(__dirname, 'browsers');
+
 const store = require('./lib/store');
 const sb = require('./lib/supabase');
 const browser = require('./lib/browser');

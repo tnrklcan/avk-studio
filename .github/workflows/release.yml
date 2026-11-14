@@ -8,20 +8,38 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-      - run: gh release create ${{ github.ref_name }} --draft --title "AVK Studio ${{ github.ref_name }}" --notes "" --repo ${{ github.repository }} || true
+      - run: gh release create ${{ github.ref_name }} --draft --title "AVK Sinema ${{ github.ref_name }}" --notes "" --repo ${{ github.repository }} || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build:
     needs: create-release
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - { os: macos-latest, args: "--mac --arm64", host: "" }
+          - { os: macos-latest, args: "--mac --x64", host: "mac15" }
+          - { os: windows-latest, args: "--win", host: "" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci
-      - run: npx electron-builder --publish always
+      # Mac sürümünde hazır Chromium gömülür (kullanıcı Chrome kurmak zorunda kalmaz). Windows'ta Edge hazır gelir.
+      - name: Chromium indir (Mac)
+        if: runner.os == 'macOS'
+        run: npx playwright-core install chromium --no-shell
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/browsers
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ${{ matrix.host }}
+      - run: npx electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit ${{ github.ref_name }} --draft=false --latest --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

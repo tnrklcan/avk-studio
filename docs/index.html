@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVK Sinema - İndir</title>
+<link rel="icon" href="icon.png">
+<style>
+  :root { --bg:#FBF7F2; --ink:#1F1B18; --muted:#6E6660; --line:#EADFD3; --orange:#E87134; --orange-d:#CF5F26; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui,-apple-system,'Segoe UI',sans-serif; line-height:1.55; font-size:17px; }
+  .wrap { max-width:760px; margin:0 auto; padding:36px 20px 80px; }
+  img.logo { height:56px; }
+  h1 { font-size:36px; line-height:1.15; margin:26px 0 8px; letter-spacing:-.5px; }
+  p.sub { color:var(--muted); margin:0 0 28px; }
+  .dl { display:grid; gap:14px; margin-bottom:34px; }
+  a.btn { display:flex; align-items:center; justify-content:space-between; gap:12px; text-decoration:none; background:#fff; color:var(--ink); border:2px solid var(--line); border-radius:18px; padding:18px 22px; font-weight:700; }
+  a.btn small { display:block; font-weight:400; color:var(--muted); font-size:14px; }
+  a.btn span.go { background:var(--orange); color:#fff; border-radius:12px; padding:10px 18px; white-space:nowrap; }
+  a.btn:hover { border-color:var(--orange); }
+  a.btn.rec { border-color:var(--orange); background:#FDEBDD; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:18px; padding:22px 24px; margin-bottom:18px; }
+  h2 { font-size:22px; margin:0 0 10px; }
+  ol { margin:0; padding-left:22px; } li { margin:6px 0; }
+  .note { color:var(--muted); font-size:15px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img class="logo" src="logo.png" alt="AI Video Kulübü">
+  <h1>AVK Sinema'yı indirin</h1>
+  <p class="sub">Türkçe, ultra gerçekçi yapay zeka videoları. Kurulum 2 dakika.</p>
+
+  <div class="dl">
+    <a class="btn" id="win" href="https://github.com/tnrklcan/avk-studio/releases/latest/download/AVK-Sinema-Windows.exe">
+      <div>🪟 Windows<small>Windows 10 ve 11</small></div><span class="go">İndir</span></a>
+    <a class="btn" id="macarm" href="https://github.com/tnrklcan/avk-studio/releases/latest/download/AVK-Sinema-Mac-arm64.dmg">
+      <div>🍎 Mac (Apple çipli)<small>M1, M2, M3, M4. Emin değilseniz: Apple menüsü › Bu Mac Hakkında</small></div><span class="go">İndir</span></a>
+    <a class="btn" id="macintel" href="https://github.com/tnrklcan/avk-studio/releases/latest/download/AVK-Sinema-Mac-x64.dmg">
+      <div>🍎 Mac (Intel işlemcili)<small>2020 öncesi Mac'ler</small></div><span class="go">İndir</span></a>
+  </div>
+
+  <div class="card">
+    <h2>Kurulum</h2>
+    <ol>
+      <li>Dosyayı indirip açın ve kurun.</li>
+      <li><b>İlk açılışta uyarı çıkarsa</b> (program henüz imzasız):<br>
+          <b>Mac:</b> Uygulamalar klasöründe AVK Sinema'ya <b>sağ tıklayıp "Aç"</b> deyin, çıkan pencerede yine "Aç".<br>
+          <b>Windows:</b> "Daha fazla bilgi" › <b>"Yine de çalıştır"</b>.</li>
+      <li>"İlk giriş" sekmesinden Skool'da kullandığınız e-postayı yazın ve kendinize bir şifre belirleyin.</li>
+      <li>Kurulum ekranında Google Flow'a ve ChatGPT'ye (veya Claude'a) "bağlan" deyin. Açılan pencerede giriş yapın, gerisini program yapar.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Gerekenler</h2>
+    <ul>
+      <li>AI Video Kulübü üyeliği (Skool e-postanız)</li>
+      <li>Google AI Pro veya Ultra üyeliği (Google Flow için)</li>
+      <li>ChatGPT veya Claude hesabı (ücretsiz de olur)</li>
+    </ul>
+    <p class="note">Ek program kurmanız gerekmez. Tarayıcı ve video araçları programın içinde gelir.</p>
+  </div>
+</div>
+<script>
+  var ua = navigator.userAgent;
+  var id = /Windows/i.test(ua) ? 'win' : /Mac/i.test(ua) ? 'macarm' : null;
+  if (id) { var el = document.getElementById(id); el.classList.add('rec'); el.parentNode.prepend(el); }
+</script>
+</body>
+</html>
