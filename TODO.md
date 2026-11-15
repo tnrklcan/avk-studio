@@ -1,6 +1,6 @@
 # TODO - AVK Sinema (eski ad: AVK Studio)
 **Son güncelleme:** 16 Kasım 2026
-**Devam eden iş:** AVK Sinema masaüstü programı (Mac + Windows) yayında (v0.1.2). Üyelere duyuru ve ilk geri bildirimler bekleniyor.
+**Devam eden iş:** AVK Sinema v0.1.4 yayında (16 Kas 2026). Üyelerden geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
 
 ## Yapıldı
 - Program (Electron): giriş, otomatik Flow/ChatGPT bağlantısı (kalibrasyonsuz), 4 mod, Videolarım (silme + toplu render), bildirimler, geri/adım gezinme, dikey/yatay seçimi → `AVK-Studio/` (main.js, lib/, src/)
@@ -13,7 +13,7 @@
 - Üye kılavuzu → `AVK-Studio/AVK Sinema Kurulum Kilavuzu.md`
 - Yeni ikon (logodaki turuncu play), ad "AVK Sinema"
 
-## 16 Kas düzeltmeleri (v0.1.4, yerelde, YAYINLANMADI)
+## 16 Kas düzeltmeleri (v0.1.4, YAYINDA)
 - v0.1.3 (yayında): config.json kurulum paketine eklendi (Windows'ta "config.json eksik" hatası)
 - Flow'da aynı referans görsel tekrar yüklenmiyor, "Yüklemeler"den seçiliyor → `lib/flow.js` (addUploaded)
 - Video yakalama yeniden yazıldı: Flow ızgarasında video `<video>` değil `flow-video-tile` küçük resmi; yeni karo bulunup tıklanır, "Medyayı indir > 720p" ile indirilir (404 ve "bitti ama program bekliyor" hataları) → `lib/flow.js`
@@ -21,9 +21,9 @@
 - Hazır karakter kiti: yeni kit üretilmez, sadece görsel tarif edilir (describeCharacter) → `lib/templates.js`, `src/app.js`
 - Zaman Yolculuğu: klipler 15 sn; uzunluk açılır menü (15 sn-15 dk + özel saniye); 15 sn parçalara bölme + son klip kalanı (planClips); 5+ klipte önce özet sonra 4'erli gruplar → `src/app.js`, `lib/templates.js`
 - Klip inceleme ekranında toplam süre + kredi tahmini (15 sn ≈ 60 kredi), 8+ klipte onay
+- Hazır karakter kiti: buton "İleri", ChatGPT/Flow açılmadan doğrudan sonraki adım (not kutusu karakter tarifi olur) → `src/app.js` characterStep
 
 ## Sıradaki adımlar
-- [ ] v0.1.4'ü yayınla (onay bekliyor): sürüm zaten 0.1.4, `git commit` + `git tag v0.1.4` + push
 - [ ] Kredi gerektiren gerçek test (onay al): UGC 1 klip (video yakalama), Ürün Tanıtımı 2 sahne (referans yeniden kullanımı + indirme), Zaman Yolculuğu 30 sn
 - [ ] Admin panelinden Skool CSV'sini yükle (yüklenmeden üyeler kayıt olamaz)
 - [ ] Kılavuzu ve indirme linkini Skool'da paylaş
@@ -34,6 +34,9 @@
 - [ ] İsteğe bağlı: Mac imzalama (Apple Developer, 99$/yıl) ve Windows imzası; uyarı kalkar, Mac otomatik güncelleme çalışır
 
 ## Önemli kararlar / kısıtlar
+- Flow ızgarasında video `<video>` değil `flow-video-tile` küçük resmidir. İndirme: karoya tıkla > "Medyayı indir" > 720p (ücretsiz). 1080p/4K yükseltilmiş seçenekler kredi harcar, dokunulmaz.
+- Zaman Yolculuğu: tek klip en fazla 15 sn; toplam süre planClips ile bölünür, son klip en az 4 sn. Yumuşak geçiş klip başına ~0,4 sn kısaltır.
+- ChatGPT ücretsiz sürümü tek görsel kabul eder: ilk görsel gönderilir, uyarı notu gösterilir.
 - Flow düğmeleri sabit etiketlerle bulunur (TR/EN). Flow arayüzü değişirse `lib/flow.js` içindeki SEL tablosu güncellenir, yeni sürüm yayınlanır.
 - Video modeli sabitlenmez (Flow'un varsayılanı kullanılır). Süre: normal 8 sn, Sinematik 15 sn (≈60 kredi).
 - Her ücretli üretimden önce kredi tahmini + kullanıcı onayı şart.
