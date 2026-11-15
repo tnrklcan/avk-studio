@@ -274,7 +274,7 @@ async function viewSetup(first) {
           [h('button', { class: 'btn small', onclick: connect('flow', 'Google Flow\'a bağlanılıyor') }, st.flowTested ? 'Yeniden bağlan' : 'Flow\'a bağlan'),
             st.flowTested ? h('span', { class: 'badge ok' }, 'Hazır') : null]),
         item(2, st.chatTested, 'Prompt yazan yapay zeka (' + provName + ')',
-          'Promptlar İngilizce olarak ' + provName + ' ile otomatik yazdırılır. Hangisini kullanacağınızı seçin.',
+          'Promptlar İngilizce olarak ' + provName + ' ile otomatik yazdırılır. Hangisini kullanacağınızı seçin. (ChatGPT ücretsiz sürümünde birden fazla görsel yüklenemez; bu durumda yalnızca ilk görsel kullanılır.)',
           [chips([{ v: 'chatgpt', t: 'ChatGPT' }, { v: 'claude', t: 'Claude' }], () => st.provider, async (v) => { await call('settings.set', { provider: v }); viewSetup(first); }),
             h('div', { style: 'flex-basis:100%' }),
             h('button', { class: 'btn small', onclick: connect(st.provider, provName + '\'a bağlanılıyor') }, st.chatTested ? 'Yeniden bağlan' : provName + '\'a bağlan'),
@@ -403,6 +403,23 @@ const wFrame = (title, names, step, body) => mount(
       h('button', { class: 'btn ghost small', onclick: () => (step > 0 && W.nav[step - 1] ? W.nav[step - 1]() : viewHome()) }, '← Geri')),
     h('h1', {}, title), stepper(names, step), body));
 const ensureDir = async (name) => { if (!W.dir) W.dir = await call('project.create', { name }); return W.dir; };
+// Süre yazısı: 90 -> "1 dk 30 sn"
+const fmtDur = (sec) => (sec < 60 ? sec + ' sn' : Math.floor(sec / 60) + ' dk' + (sec % 60 ? ' ' + (sec % 60) + ' sn' : ''));
+// Toplam süreyi 15 sn'lik klip parçalarına böler. Son klip kalanı tamamlar; Flow en az 4 sn üretir,
+// kalan 4 sn'den azsa bir önceki klip kısaltılır ki toplam TAM tutsun. Örn: 300 -> 20x15 | 100 -> 6x15+10 | 61 -> 15,15,15,12,4
+function planClips(total) {
+  total = Math.max(4, Math.round(total));
+  const full = Math.floor(total / 15), rem = total - full * 15;
+  const a = Array(full).fill(15);
+  if (rem >= 4) a.push(rem);
+  else if (rem > 0) { if (a.length) a[a.length - 1] = 15 - (4 - rem); a.push(4); }
+  return a;
+}
+const planText = (p) => {
+  const last = p[p.length - 1], n15 = p.filter((x) => x === 15).length;
+  return n15 === p.length ? `${p.length} klip × 15 sn` : n15 === p.length - 1 ? `${n15} klip × 15 sn + 1 klip × ${last} sn` : p.map((x) => x + ' sn').join(' + ');
+};
+const freeNote = () => h('div', { class: 'hint' }, 'ℹ️ ChatGPT\'nin ücretsiz sürümünü kullanıyorsanız birden fazla görsel yükleyemezsiniz; bu durumda yapay zekaya yalnızca ilk görsel gösterilir (Flow\'a hepsi gönderilir). Birden fazla görsel için ChatGPT Plus gerekir.');
 const NO_AVATAR = 'Programda avatarınız bulunamadı. Google Flow\'da "Avatarlar" bölümünden bir avatar oluşturun, sonra tekrar deneyin.';
 
 // Karakter adımı (UGC ve Zaman Yolculuğu için ortak)
@@ -415,7 +432,9 @@ function characterStep(opts) {
   const desc = h('textarea', { placeholder: 'Örn: 28 yaşında, kısa siyah saçlı, sıcak gülümseyen bir kadın. Beyaz tişört giyiyor.' });
   desc.value = W.desc || '';
   const kindBox = h('div');
+  const goBtn = h('button', { class: 'btn' }, 'Karakter kitini oluştur');
   const drawKind = () => {
+    goBtn.textContent = W.kind === 'ready' ? 'İleri' : 'Karakter kitini oluştur';
     kindBox.replaceChildren(
       chips([{ v: 'photo', t: 'Referans fotoğrafım var' }, { v: 'text', t: 'Tarif edeceğim' }, { v: 'avatar', t: 'Flow avatarımı kullan' }, { v: 'ready', t: 'Hazır karakter kitim var' }], () => W.kind, (v) => { W.desc = desc.value; W.kind = v; drawKind(); }),
       h('div', { style: 'margin-top:16px' },
@@ -430,31 +449,41 @@ function characterStep(opts) {
     if ((W.kind === 'photo' || W.kind === 'ready') && !W.files.ref.length) return err.append(h('div', { class: 'err-box' }, 'Lütfen bir görsel seçin.'));
     if (W.kind === 'text' && W.desc.length < 8) return err.append(h('div', { class: 'err-box' }, 'Lütfen karakteri biraz daha anlatın.'));
     let refPaths = W.files.ref.map((f) => f.path);
-    const r = await safe(() => job('Karakteriniz hazırlanıyor', async () => {
+    if (W.kind === 'ready') { // hazır kit: ChatGPT/Flow hiç açılmaz, doğrudan sonraki adıma geçilir
+      W.kit = refPaths[0]; W.kitDone = true;
+      W.charDesc = W.desc || 'the exact person shown in the attached character reference image (same face, hair and outfit)';
+      return next();
+    }
+    const ready = false;
+    const r = await safe(() => job(ready ? 'Karakter görseliniz inceleniyor' : 'Karakteriniz hazırlanıyor', async () => {
       const dir = await ensureDir(W.title || 'Video');
       if (W.kind === 'avatar') {
         const a = await call('flow.checkAvatar', { dir });
         if (!a.found) { const e = new Error(NO_AVATAR); throw e; }
         refPaths = a.file ? [a.file] : [];
       }
+      if (W.kind === 'ready') { // hazır kit: yeni kit ÜRETİLMEZ, sadece görseldeki kişi kısaca tarif edilir
+        const d = await call('chat.json', { template: 'describeCharacter', params: { note: W.desc }, files: [refPaths[0]] });
+        W.charDesc = d.short_description; W.kit = refPaths[0]; return;
+      }
       const j = await call('chat.json', { template: 'characterKit', params: { description: W.desc, hasReference: W.kind === 'photo' || W.kind === 'avatar' }, files: refPaths });
       W.charDesc = j.short_description;
-      if (W.kind === 'ready') { W.kit = refPaths[0]; return; }
       W.kit = await call('flow.image', { prompt: j.prompt, files: W.kind === 'photo' ? refPaths : W.kind === 'avatar' ? ['flow:avatar'] : [], dir, name: 'karakter-kiti.png', aspect: '16:9' });
-    }, { stoppable: true, hint: 'Önce prompt yazılır, sonra Flow görseli üretir. Bu 1-3 dakika sürebilir.' }), err);
-    if (r !== null) { W.kitDone = true; notify('ok', 'Karakter kitiniz hazır', 'Beğenip devam edebilirsiniz.'); kitPreview(); }
+    }, { stoppable: !ready, hint: ready ? 'Hazır karakter kitiniz kullanılacak, yeni kit üretilmez. Yapay zeka görseldeki kişiyi kısaca tarif ediyor.' : 'Önce prompt yazılır, sonra Flow görseli üretir. Bu 1-3 dakika sürebilir.' }), err);
+    if (r !== null) { W.kitDone = true; if (!ready) notify('ok', 'Karakter kitiniz hazır', 'Beğenip devam edebilirsiniz.'); kitPreview(); }
   };
+  goBtn.onclick = go;
   function kitPreview() {
     call('files.dataUrl', { path: W.kit }).then((du) => wFrame(title, names, 0, h('div', { class: 'card stack' },
       h('h2', {}, 'Karakter kitiniz'), h('img', { class: 'preview', src: du }),
       h('p', { class: 'muted small' }, W.charDesc),
       h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: next }, 'Beğendim, devam et'),
-        h('button', { class: 'btn ghost', onclick: () => { W.kit = null; W.kitDone = false; self(); } }, 'Yeniden üret')))));
+        h('button', { class: 'btn ghost', onclick: () => { W.kit = null; W.kitDone = false; self(); } }, W.kind === 'ready' ? 'Başka görsel seç' : 'Yeniden üret')))));
   }
   wFrame(title, names, 0, h('div', { class: 'card stack' },
     h('h2', {}, 'Karakteriniz kim?'), kindBox, aspectPicker(),
-    h('button', { class: 'btn', onclick: go }, W.kind === 'ready' ? 'Devam et' : 'Karakter kitini oluştur'), err));
+    goBtn, err));
 }
 
 // Klip inceleme + üretim (ortak)
@@ -466,8 +495,12 @@ function clipsReview(args) {
     h('span', { class: 'badge' }, `Klip ${i + 1} · ${c.seconds || 8} sn`), c.turkish_line ? h('span', { class: 'line' }, '“' + c.turkish_line + '”') : h('span', { class: 'muted' }, 'Görsel anlatım'),
     h('details', {}, h('summary', {}, 'İngilizce promptu gör / düzenle'),
       h('textarea', { oninput: (e) => { c.prompt = e.target.value; } }, c.prompt)))));
+  const totalSec = clips.reduce((a, c) => a + (+c.seconds || 8), 0);
+  const credit = clips.some((c) => (+c.seconds || 8) >= 15) ? Math.round(totalSec * 4) : 0; // 15 sn ≈ 60 kredi
+  const estimate = `Toplam video süresi: ${fmtDur(totalSec)} · ${clips.length} klip` + (credit ? ` · yaklaşık ${credit} Flow kredisi` : '') + ` · tahmini bekleme: ${clips.length * 4}-${clips.length * 6} dk`;
   const go = async () => {
     err.replaceChildren();
+    if (clips.length > 8 && !(await confirmBox({ title: 'Uzun üretim', text: `${estimate}. Bu üretim uzun sürer; bilgisayarınız uyumasın ve Chrome penceresini kapatmayın. Başlayalım mı?`, ok: 'Başla' }))) return;
     const r = await safe(() => job('Videonuz üretiliyor', async () => {
       const dir = await ensureDir(W.title || 'Video');
       return call('flow.clips', { clips, refs, chain, startFrame, aspect: W.aspect, dir, title: W.title || 'video' });
@@ -475,7 +508,7 @@ function clipsReview(args) {
     if (r) { notify('ok', 'Videonuz hazır 🎉', W.title || ''); onDone(r); }
   };
   wFrame(title, names, step, h('div', { class: 'card stack' },
-    h('h2', {}, `${clips.length} klip hazırlandı`), extraTop,
+    h('h2', {}, `${clips.length} klip hazırlandı`), extraTop, h('p', { class: 'hint', style: 'margin:0' }, estimate),
     h('p', { class: 'sub', style: 'margin:0' }, 'Her klibin altındaki ok ile promptu görebilir ve isterseniz düzeltebilirsiniz. Bilmiyorsanız dokunmayın.'),
     list, h('button', { class: 'btn', onclick: go }, 'Videoyu üret'), err));
 }
@@ -493,7 +526,7 @@ function wUgc() {
     note.value = W.note || '';
     wFrame('UGC Video', names, 1, h('div', { class: 'card stack' },
       h('h2', {}, 'Video konusu veya senaryosu'), script,
-      h('div', {}, h('label', { class: 'f' }, 'Ürün tanıtacaksa ürün görseli (isteğe bağlı)'), fileDrop({ files: W.files.product }), h('div', { style: 'margin-top:10px' }, note)),
+      h('div', {}, h('label', { class: 'f' }, 'Ürün tanıtacaksa ürün görseli (isteğe bağlı)'), fileDrop({ files: W.files.product }), freeNote(), h('div', { style: 'margin-top:10px' }, note)),
       h('button', {
         class: 'btn', onclick: async () => {
           W.script = script.value.trim(); W.note = note.value;
@@ -525,7 +558,7 @@ function wProduct() {
   const note = h('input', { type: 'text', placeholder: 'Ürün nedir? (örn: lavanta kokulu el kremi)' });
   const custom = h('input', { type: 'text', placeholder: 'Veya kendi tarzınızı yazın (örn: Apple reklamı gibi sade)' });
   wFrame('Ürün Tanıtımı', names, 0, h('div', { class: 'card stack' },
-    h('h2', {}, 'Ürün görselleriniz'), fileDrop({ multi: true, files: W.files.product, label: 'Ürün fotoğraflarını seçin (1-4 adet)' }), note,
+    h('h2', {}, 'Ürün görselleriniz'), fileDrop({ multi: true, files: W.files.product, label: 'Ürün fotoğraflarını seçin (1-4 adet)' }), freeNote(), note,
     h('div', {}, h('label', { class: 'f' }, 'Nasıl bir tarz istersiniz?'), chips(STYLES.map((s) => ({ v: s, t: s })), () => W.style, (v) => { W.style = v; custom.value = ''; }), h('div', { style: 'margin-top:10px' }, custom)),
     h('div', {}, h('label', { class: 'f' }, 'Kaç sahne?'), chips([2, 3, 4].map((n) => ({ v: n, t: n + ' sahne' })), () => W.count, (v) => { W.count = v; })),
     aspectPicker(),
@@ -543,13 +576,50 @@ function wProduct() {
 }
 
 // 3) Zaman yolculuğu
+const HISTORY_LENGTHS = [
+  ['15', '15 saniye'], ['30', '30 saniye'], ['45', '45 saniye'], ['60', '1 dakika'], ['120', '2 dakika'],
+  ['300', '5 dakika'], ['600', '10 dakika'], ['900', '15 dakika'], ['custom', 'Özel süre (saniye yazın)']
+];
+const setBusyStatus = (t) => { const st = $('#busy .status'); if (st) st.textContent = t; };
+// Yapay zekanın yazdığı klipleri plana uydurur: sayı ve süreler plandaki gibi olmalı
+function fitClips(list, durs) {
+  if (!Array.isArray(list) || list.length < durs.length) throw new Error('Yapay zeka eksik sahne yazdı. Lütfen tekrar deneyin.');
+  return list.slice(0, durs.length).map((c, i) => ({ ...c, seconds: durs[i], turkish_line: c.turkish_line || '', prompt: String(c.prompt || '') }));
+}
+async function writeHistoryClips(durs) {
+  const base = { characterDesc: W.charDesc, story: W.story, aspect: W.aspect };
+  if (durs.length <= 5) { // kısa: tek istekte
+    const r = await call('chat.json', { template: 'historyScenes', params: { ...base, durations: durs }, files: [W.kit] });
+    return { title: r.title, clips: fitClips(r.clips, durs) };
+  }
+  // uzun: önce hikayeyi bölümlere ayır, sonra 4'erli gruplar halinde klip promptlarını yazdır
+  setBusyStatus('Hikaye bölümlere ayrılıyor...');
+  const o = await call('chat.json', { template: 'historyOutline', params: { story: W.story, durations: durs } });
+  const beats = Array.isArray(o.beats) ? o.beats.slice(0, durs.length) : [];
+  while (beats.length < durs.length) beats.push(beats[beats.length - 1] || W.story);
+  const clips = []; let prevNote = '';
+  for (let i = 0; i < durs.length; i += 4) {
+    const to = Math.min(i + 4, durs.length);
+    setBusyStatus(`Sahneler yazılıyor: klip ${i + 1}-${to} / ${durs.length}`);
+    const params = { ...base, title: o.title || '', beats, from: i, to, durations: durs, prevNote };
+    let got;
+    for (let attempt = 0; ; attempt++) {
+      try { const r = await call('chat.json', { template: 'historyBatch', params, files: i === 0 ? [W.kit] : [] }); got = fitClips(r.clips, durs.slice(i, to)); break; }
+      catch (e) { if (attempt >= 1) throw e; }
+    }
+    clips.push(...got);
+    prevNote = beats[to - 1];
+  }
+  return { title: o.title, clips };
+}
+
 function wHistory() {
   const names = ['Karakter', 'Hikaye', 'Sahneler', 'Sonuç'];
   const step1 = () => characterStep({ title: 'Zaman Yolculuğu', hint: 'Fotoğrafınızı seçebilir ya da "Flow avatarımı kullan" diyebilirsiniz.', names, next: step2, again: step1 });
   const step2 = () => {
     W.nav[1] = step2;
     const err = h('div');
-    W.count = W.count || 4;
+    W.lenSel = W.lenSel || '30';
     const story = h('textarea', { style: 'min-height:130px', placeholder: 'Hangi anı canlandıralım? Örn: Şehzade Mustafa\'nın son gecesi, Konya Ereğlisi, 1553' });
     story.value = W.story || '';
     const era = h('input', { type: 'text', placeholder: 'Dönem (isteğe bağlı): Osmanlı, Roma, Selçuklu...' });
@@ -560,18 +630,35 @@ function wHistory() {
       ideasBox.replaceChildren(...r.ideas.map((i) => h('div', { class: 'clip', style: 'cursor:pointer', onclick: () => { story.value = `${i.title} (${i.era}). ${i.hook}`; toast('Seçildi'); } },
         h('div', { class: 'line' }, i.title), h('div', { class: 'muted small' }, `${i.era} · ${i.hook}`))));
     };
+    // Uzunluk: açılır menü + özel süre (saniye). Klip planı otomatik hesaplanır.
+    const sel = h('select', { onchange: () => { W.lenSel = sel.value; drawPlan(); } }, HISTORY_LENGTHS.map(([v, t]) => h('option', { value: v, selected: v === W.lenSel }, t)));
+    const custom = h('input', { type: 'number', min: '4', max: '1800', step: '1', placeholder: 'Süre (saniye). Örn: 90', style: 'margin-top:10px' });
+    custom.value = W.customSec || '';
+    const planBox = h('div', { class: 'hint' });
+    const totalSec = () => (W.lenSel === 'custom' ? Math.round(+custom.value || 0) : +W.lenSel);
+    function drawPlan() {
+      custom.style.display = W.lenSel === 'custom' ? '' : 'none';
+      const t = totalSec();
+      if (!t || t < 4) { planBox.textContent = 'Toplam süreyi saniye olarak yazın (en az 4 sn).'; return; }
+      if (t > 1800) { planBox.textContent = 'En fazla 30 dakika (1800 sn) üretilebilir.'; return; }
+      const p = planClips(t);
+      planBox.textContent = `${fmtDur(t)} (${t} sn) için: ${planText(p)}. Flow'da tek video en fazla 15 sn üretildiği için video parçalara bölünür, üretilen klipler toplamı tam ${t} sn eder (birleştirmedeki yumuşak geçiş filmi klip başına yaklaşık 0,4 sn kısaltabilir). Yaklaşık ${t * 4} Flow kredisi harcanır.`;
+    }
+    custom.addEventListener('input', () => { W.customSec = custom.value; drawPlan(); });
+    drawPlan();
     wFrame('Zaman Yolculuğu', names, 1, h('div', { class: 'card stack' },
       h('h2', {}, 'Hangi hikayeyi anlatalım?'), story,
       h('div', {}, h('label', { class: 'f' }, 'Öneri istiyorsanız'), era, h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn ghost small', onclick: suggest }, '✨ Bana hikaye öner'))),
       ideasBox,
-      h('div', {}, h('label', { class: 'f' }, 'Uzunluk'), chips([{ v: 3, t: '~25 sn' }, { v: 4, t: '~30 sn' }, { v: 6, t: '~45 sn' }], () => W.count, (v) => { W.count = v; })),
+      h('div', {}, h('label', { class: 'f' }, 'Uzunluk'), sel, custom, planBox),
       h('button', {
         class: 'btn', onclick: async () => {
           W.story = story.value.trim();
           if (W.story.length < 10) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen bir hikaye yazın veya öneriden seçin.'));
-          const r = await safe(() => job('Sahneler hazırlanıyor', () => call('chat.json', {
-            template: 'historyScenes', params: { characterDesc: W.charDesc, story: W.story, clipCount: W.count, aspect: W.aspect }, files: [W.kit]
-          })), err);
+          const t = totalSec();
+          if (!t || t < 4 || t > 1800) return err.replaceChildren(h('div', { class: 'err-box' }, 'Lütfen 4 ile 1800 saniye arasında bir süre seçin veya yazın.'));
+          const durs = planClips(t);
+          const r = await safe(() => job('Sahneler hazırlanıyor', () => writeHistoryClips(durs), { hint: durs.length > 5 ? 'Uzun hikaye bölümlere ayrılıp klip klip yazılıyor, birkaç dakika sürebilir...' : 'Yapay zeka sahneleri yazıyor...' }), err);
           if (!r) return;
           W.title = r.title || 'Zaman Yolculuğu';
           clipsReview({ title: 'Zaman Yolculuğu', names, step: 2, clips: r.clips, refs: [charRef()], chain: true, onDone: (x) => viewResult(x) });

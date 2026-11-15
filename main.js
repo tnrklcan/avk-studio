@@ -192,11 +192,22 @@ function dataUrl(p) {
   } catch (_) { return null; }
 }
 
+// Kullanıcıya teknik/kod hatası göstermemek için: renk kodlarını ve "Call log" kuyruğunu atar, bilinen hataları sadeleştirir.
+function friendly(e) {
+  const raw = String((e && e.message) || e || '');
+  const clean = raw.replace(/\u001b\[[0-9;]*m/g, '').replace(/\[\d+m/g, '');
+  if (/Non-multiple file input/i.test(clean)) return 'ChatGPT ücretsiz sürümü tek görsel kabul ediyor. Birden fazla görsel için ChatGPT Plus gerekir; tek görselle tekrar deneyin.';
+  if (/Timeout \d+ms exceeded|waiting for (locator|selector|event)/i.test(clean)) return 'Sayfada beklenen öğe görünmedi (Flow/ChatGPT yavaş açılmış ya da arayüzü değişmiş olabilir). Tekrar deneyin.';
+  if (/Target (page, context or browser|closed)|browser has been closed|has been closed/i.test(clean)) return 'Chrome penceresi kapandı. Pencereyi açık tutup tekrar deneyin.';
+  const first = clean.split(/\n\s*Call log:?/i)[0].replace(/^[\w.]+: (Error: )?/, '').split('\n')[0].trim();
+  return first || 'Bir sorun oluştu. Tekrar deneyin.';
+}
+
 ipcMain.handle('api', async (_e, name, args) => {
   const fn = api[name];
   if (!fn) return { error: 'Bilinmeyen işlem: ' + name };
   try { return { data: await fn(args || {}) }; }
-  catch (e) { return { error: e.message || String(e), code: e.code, site: e.site }; }
+  catch (e) { console.error('[api ' + name + ']', e && e.message); return { error: friendly(e), code: e.code, site: e.site }; }
 });
 
 app.whenReady().then(() => {

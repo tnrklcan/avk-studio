@@ -1,5 +1,5 @@
 # TODO - AVK Sinema (eski ad: AVK Studio)
-**Son güncelleme:** 14 Kasım 2026
+**Son güncelleme:** 16 Kasım 2026
 **Devam eden iş:** AVK Sinema masaüstü programı (Mac + Windows) yayında (v0.1.2). Üyelere duyuru ve ilk geri bildirimler bekleniyor.
 
 ## Yapıldı
@@ -13,7 +13,18 @@
 - Üye kılavuzu → `AVK-Studio/AVK Sinema Kurulum Kilavuzu.md`
 - Yeni ikon (logodaki turuncu play), ad "AVK Sinema"
 
+## 16 Kas düzeltmeleri (v0.1.4, yerelde, YAYINLANMADI)
+- v0.1.3 (yayında): config.json kurulum paketine eklendi (Windows'ta "config.json eksik" hatası)
+- Flow'da aynı referans görsel tekrar yüklenmiyor, "Yüklemeler"den seçiliyor → `lib/flow.js` (addUploaded)
+- Video yakalama yeniden yazıldı: Flow ızgarasında video `<video>` değil `flow-video-tile` küçük resmi; yeni karo bulunup tıklanır, "Medyayı indir > 720p" ile indirilir (404 ve "bitti ama program bekliyor" hataları) → `lib/flow.js`
+- ChatGPT ücretsiz tek görsel: ilk görsel gönderilir + uyarı notu; teknik hata metinleri sadeleştirildi → `lib/chat.js`, `main.js` (friendly), `src/app.js` (freeNote)
+- Hazır karakter kiti: yeni kit üretilmez, sadece görsel tarif edilir (describeCharacter) → `lib/templates.js`, `src/app.js`
+- Zaman Yolculuğu: klipler 15 sn; uzunluk açılır menü (15 sn-15 dk + özel saniye); 15 sn parçalara bölme + son klip kalanı (planClips); 5+ klipte önce özet sonra 4'erli gruplar → `src/app.js`, `lib/templates.js`
+- Klip inceleme ekranında toplam süre + kredi tahmini (15 sn ≈ 60 kredi), 8+ klipte onay
+
 ## Sıradaki adımlar
+- [ ] v0.1.4'ü yayınla (onay bekliyor): sürüm zaten 0.1.4, `git commit` + `git tag v0.1.4` + push
+- [ ] Kredi gerektiren gerçek test (onay al): UGC 1 klip (video yakalama), Ürün Tanıtımı 2 sahne (referans yeniden kullanımı + indirme), Zaman Yolculuğu 30 sn
 - [ ] Admin panelinden Skool CSV'sini yükle (yüklenmeden üyeler kayıt olamaz)
 - [ ] Kılavuzu ve indirme linkini Skool'da paylaş
 - [ ] Kredi harcamayan eksik testler: Claude seçeneği, referans fotoğrafla karakter kiti, bildirim sesi
