@@ -115,7 +115,7 @@ function renderBusyLogs() {
   if (k && st && !c) st.textContent = `Klip ${k.index + 1}/${k.total} ${k.state === 'done' ? 'tamamlandı' : 'üretiliyor'}`;
 }
 
-async function job(title, fn, { stoppable = false, hint = '' } = {}) {
+async function job(title, fn, { stoppable = false, hint = '', giveUp = false } = {}) {
   busyBox.logs = []; busyBox.clip = null;
   const el = $('#busy');
   el.replaceChildren(h('div', { class: 'box' },
@@ -123,7 +123,8 @@ async function job(title, fn, { stoppable = false, hint = '' } = {}) {
     h('div', { class: 'status muted' }, hint || 'Lütfen bekleyin...'),
     h('div', { class: 'bar' }, h('i')),
     h('div', { class: 'logbox' }),
-    stoppable ? h('button', { class: 'btn danger small', onclick: () => { call('job.cancel'); toast('Durduruluyor...'); } }, 'Durdur') : null));
+    stoppable ? h('button', { class: 'btn danger small', onclick: () => { call('job.cancel'); toast('Durduruluyor...'); } }, 'Durdur') : null,
+    giveUp ? h('button', { class: 'btn ghost small', style: 'margin-top:12px', onclick: () => { call('setup.cancel'); toast('Vazgeçiliyor...'); } }, 'Vazgeç') : null));
   el.classList.remove('hidden');
   try { return await fn(); }
   finally { el.classList.add('hidden'); }
@@ -132,12 +133,15 @@ async function job(title, fn, { stoppable = false, hint = '' } = {}) {
 function errBox(e) {
   const needs = e && e.code === 'NEEDS_CALIBRATION';
   return h('div', { class: 'err-box' }, e.message || String(e),
-    false ? h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn small', onclick: () => viewSetup() }, 'Kurulum ekranına git')) : null);
+    e.detail ? h('div', { style: 'margin-top:10px' }, h('button', { class: 'btn small', onclick: async (ev) => {
+      try { await navigator.clipboard.writeText(e.detail); ev.target.textContent = 'Kopyalandı ✓'; } catch (_) { toast('Kopyalanamadı'); }
+    } }, 'Hata raporunu kopyala'), h('span', { class: 'muted small', style: 'margin-left:8px' }, 'Kopyalayıp bize gönderin')) : null);
 }
 async function safe(fn, host) {
   try { return await fn(); }
   catch (e) {
     if (e.code === 'CANCELLED') { toast('Durduruldu.'); return null; }
+    window.lastErrDetail = e.detail || null;
     notify('error', 'Bir sorun oluştu', e.message);
     const box = errBox(e);
     if (host) { host.querySelector('.err-box')?.remove(); host.append(box); } else toast(e.message);
@@ -255,7 +259,7 @@ async function viewSetup(first) {
   const connect = (site, title) => async () => {
     err.replaceChildren();
     const r = await safe(() => job(title, () => call('setup.connect', { site }),
-      { hint: 'Açılan Chrome penceresinde gerekirse giriş yapın. Gerisini program yapar.' }), err);
+      { giveUp: site === 'flow', hint: 'Açılan Chrome penceresinde gerekirse giriş yapın. Gerisini program yapar.' }), err);
     if (r && r.message) toast(r.message);
     viewSetup(first);
   };
@@ -311,6 +315,27 @@ function viewHome() {
 }
 
 // ---------- ayarlar ----------
+function passwordBox() {
+  const oldPw = h('input', { type: 'password', placeholder: 'Mevcut şifre', autocomplete: 'current-password' });
+  const newPw = h('input', { type: 'password', placeholder: 'Yeni şifre (en az 6 karakter)', autocomplete: 'new-password' });
+  const newPw2 = h('input', { type: 'password', placeholder: 'Yeni şifre (tekrar)', autocomplete: 'new-password' });
+  const msg = h('div');
+  const save = async () => {
+    msg.replaceChildren();
+    if (!oldPw.value) return msg.append(h('div', { class: 'err-box' }, 'Mevcut şifrenizi yazın.'));
+    if (newPw.value.length < 6) return msg.append(h('div', { class: 'err-box' }, 'Yeni şifre en az 6 karakter olmalı.'));
+    if (newPw.value !== newPw2.value) return msg.append(h('div', { class: 'err-box' }, 'Yeni şifreler aynı değil.'));
+    try {
+      await call('auth.changePassword', { oldPw: oldPw.value, newPw: newPw.value });
+      oldPw.value = newPw.value = newPw2.value = '';
+      toast('Şifreniz değiştirildi ✓');
+      msg.append(h('div', { class: 'muted small' }, 'Şifreniz değiştirildi. Bir sonraki girişte yeni şifrenizi kullanın.'));
+    } catch (e) { msg.append(h('div', { class: 'err-box' }, e.message)); }
+  };
+  return h('div', {}, h('label', { class: 'f' }, 'Şifre değiştir'),
+    h('div', { class: 'stack' }, oldPw, newPw, newPw2, h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: save }, 'Şifreyi değiştir')), msg));
+}
+
 async function viewSettings() {
   const info = await call('app.info');
   const st = await call('setup.status');
@@ -323,6 +348,7 @@ async function viewSettings() {
         h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => viewSetup(false) }, 'Bağlantıları yönet'),
           h('span', { class: 'muted small' }, st.ready ? 'Her şey hazır.' : 'Eksik adımlar var.'))),
       h('div', {}, h('label', { class: 'f' }, 'Hesap'), h('div', { class: 'row' }, h('span', {}, S.user.email), h('button', { class: 'btn danger small', onclick: logout }, 'Çıkış yap'))),
+      passwordBox(),
       h('div', { class: 'muted small' }, `AVK Sinema sürüm ${info.version} · ${info.platform === 'mac' ? 'Mac' : 'Windows'}`))));
 }
 
@@ -344,7 +370,7 @@ async function viewLibrary() {
     bar.replaceChildren(
       h('div', {}, h('b', {}, 'Render: videoları tek filmde birleştirin'),
         h('div', { class: 'muted small' }, picked.length ? `${picked.length} video seçildi (seçim sırasıyla birleşir)` : 'Aşağıdan birleştirmek istediğiniz videoları seçin.')),
-      h('label', { class: 'row small' }, smooth, 'Yumuşak geçiş (akışı bozmadan, doğal devam eder)'),
+      h('label', { class: 'row small' }, smooth, 'Akıcı bağla (klipler kesintisiz, süre kaybı olmaz)'),
       h('button', { class: 'btn', disabled: picked.length < 1, onclick: async () => {
         const files = picked.flatMap((p) => (p.parts && p.parts.length ? p.parts : [p.final]));
         const out = await safe(() => job('Render alınıyor', () => call('video.render', { files, title: 'Film', smooth: smooth.checked }), { hint: 'Videolar birleştiriliyor, birkaç dakika sürebilir.' }));
@@ -642,7 +668,7 @@ function wHistory() {
       if (!t || t < 4) { planBox.textContent = 'Toplam süreyi saniye olarak yazın (en az 4 sn).'; return; }
       if (t > 1800) { planBox.textContent = 'En fazla 30 dakika (1800 sn) üretilebilir.'; return; }
       const p = planClips(t);
-      planBox.textContent = `${fmtDur(t)} (${t} sn) için: ${planText(p)}. Flow'da tek video en fazla 15 sn üretildiği için video parçalara bölünür, üretilen klipler toplamı tam ${t} sn eder (birleştirmedeki yumuşak geçiş filmi klip başına yaklaşık 0,4 sn kısaltabilir). Yaklaşık ${t * 4} Flow kredisi harcanır.`;
+      planBox.textContent = `${fmtDur(t)} (${t} sn) için: ${planText(p)}. Flow'da tek video en fazla 15 sn üretildiği için video parçalara bölünür, üretilen klipler toplamı tam ${t} sn eder. Yaklaşık ${t * 4} Flow kredisi harcanır.`;
     }
     custom.addEventListener('input', () => { W.customSec = custom.value; drawPlan(); });
     drawPlan();

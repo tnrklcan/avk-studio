@@ -18,7 +18,10 @@ app.setName('AVK Sinema');
 // Oturum/giriş bilgileri eski klasörde kalsın (ad değişse de yeniden giriş gerekmesin)
 if (!process.env.AVK_TEST) app.setPath('userData', path.join(app.getPath('appData'), 'AVK Studio'));
 const emit = (evt) => { if (win && !win.isDestroyed()) win.webContents.send('evt', evt); };
-const log = (m) => emit({ type: 'log', message: m });
+const recent = [];
+const stamp = () => new Date().toLocaleTimeString('tr-TR');
+const log = (m) => { recent.push(stamp() + ' ' + m); if (recent.length > 30) recent.shift(); emit({ type: 'log', message: m }); };
+let connectCancelled = false;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
@@ -81,6 +84,7 @@ const api = {
   'auth.restore': () => sb.restore(app.getVersion(), platform()),
   'auth.login': ({ email, password }) => sb.signIn(email, password, app.getVersion(), platform()),
   'auth.signup': ({ email, password }) => sb.firstSignup(email, password, app.getVersion(), platform()),
+  'auth.changePassword': ({ oldPw, newPw }) => sb.changePassword(oldPw, newPw),
   'auth.logout': () => { sb.signOut(); return true; },
 
   // --- kurulum (kalibrasyon gerekmez: otomatik bağlan + test) ---
@@ -93,7 +97,8 @@ const api = {
     const mark = (v) => { const st = store.get('settings'); st.tests = { ...(st.tests || {}), [site]: v }; store.set('settings', st); };
     mark(false);
     if (site === 'flow') {
-      await flow.connect(log);
+      connectCancelled = false;
+      await flow.connect(log, { cancelled: () => connectCancelled });
       log('Flow düğmeleri kontrol ediliyor...');
       await flow.selfTest(log);
       mark(true);
@@ -104,6 +109,7 @@ const api = {
     mark(true);
     return { message: chat.siteOf(site).name + ' hazır.' };
   },
+  'setup.cancel': () => { connectCancelled = true; return true; },
   'settings.get': () => store.get('settings'),
   'settings.set': (patch) => {
     const st = { ...store.get('settings'), ...patch };
@@ -166,7 +172,7 @@ const api = {
     if (missing.length) throw new Error('Bazı video dosyaları bulunamadı (silinmiş olabilir).');
     const dir = pipeline.projectDir('Render ' + (title || 'Film'));
     const out = path.join(dir, `${(title || 'Film').replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'Film'}-render.mp4`);
-    log(`${files.length} video birleştiriliyor (${smooth === false ? 'düz kesme' : 'yumuşak geçiş'})...`);
+    log(`${files.length} video birleştiriliyor (${smooth === false ? 'düz kesme' : 'akıcı bağlama'})...`);
     await require('./lib/stitch').render(files, out, { smooth: smooth !== false });
     store.updateProject(dir, { title: (title || 'Film') + ' (render)', final: out, parts: [out], date: new Date().toISOString() });
     return out;
@@ -203,11 +209,31 @@ function friendly(e) {
   return first || 'Bir sorun oluştu. Tekrar deneyin.';
 }
 
+// Üyenin bize iletebileceği ayrıntılı hata raporu (şifre/e-posta içermez).
+function report(name, e, shown) {
+  const raw = String((e && e.message) || e || '').replace(/\u001b\[[0-9;]*m/g, '').replace(/\[\d+m/g, '').slice(0, 1500);
+  return [
+    'AVK Sinema hata raporu',
+    'Sürüm: ' + app.getVersion() + ' | ' + process.platform + ' ' + process.arch + ' | Tarayıcı: ' + browser.info(),
+    'Tarih: ' + new Date().toLocaleString('tr-TR'),
+    'İşlem: ' + name + (e && e.code ? ' | kod: ' + e.code : ''),
+    'Gösterilen: ' + shown,
+    'Ayrıntı: ' + raw,
+    'Son adımlar:', ...recent.slice(-12)
+  ].join('\n');
+}
+
 ipcMain.handle('api', async (_e, name, args) => {
   const fn = api[name];
   if (!fn) return { error: 'Bilinmeyen işlem: ' + name };
   try { return { data: await fn(args || {}) }; }
-  catch (e) { console.error('[api ' + name + ']', e && e.message); return { error: friendly(e), code: e.code, site: e.site }; }
+  catch (e) {
+    console.error('[api ' + name + ']', e && e.message);
+    const msg = friendly(e);
+    const last = recent.length ? recent[recent.length - 1].replace(/^\S+\s/, '') : '';
+    const where = /^Sayfada beklenen öğe/.test(msg) && last ? '\n(Son adım: ' + last.slice(0, 120) + ')' : '';
+    return { error: msg + where, code: e.code, site: e.site, detail: report(name, e, msg) };
+  }
 });
 
 app.whenReady().then(() => {
