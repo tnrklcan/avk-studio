@@ -23,6 +23,7 @@
   h2 { font-size:22px; margin:0 0 10px; }
   ol { margin:0; padding-left:22px; } li { margin:6px 0; }
   .note { color:var(--muted); font-size:15px; }
+  code { background:#F3EBE2; border-radius:6px; padding:2px 7px; font-size:15px; word-break:break-all; user-select:all; }
 </style>
 </head>
 <body>
@@ -50,6 +51,19 @@
       <li>"İlk giriş" sekmesinden Skool'da kullandığınız e-postayı yazın ve kendinize bir şifre belirleyin.</li>
       <li>Kurulum ekranında Google Flow'a ve ChatGPT'ye (veya Claude'a) "bağlan" deyin. Açılan pencerede giriş yapın, gerisini program yapar.</li>
     </ol>
+  </div>
+
+  <div class="card">
+    <h2>Mac'te "AVK Sinema hasarlı, açılamıyor" (damaged) uyarısı çıkarsa</h2>
+    <p class="note" style="margin-top:0">Program bozuk değil. Mac, internetten indirilen imzasız programlara bu uyarıyı verir. Şöyle çözün:</p>
+    <ol>
+      <li>AVK Sinema'yı <b>Uygulamalar (Applications)</b> klasörüne sürükleyin. (Uyarıdaki "Çöpe Taşı" veya "Disk Görüntüsünü Çıkar" düğmelerine basmayın, <b>"İptal"</b> deyin.)</li>
+      <li><b>Terminal</b> programını açın (Spotlight için <b>Cmd + Boşluk</b> tuşlarına basıp "Terminal" yazın).</li>
+      <li>Aşağıdaki satırı kopyalayıp Terminal'e yapıştırın ve <b>Enter</b>'a basın:<br>
+          <code>xattr -cr /Applications/AVK\ Sinema.app</code></li>
+      <li>AVK Sinema'yı yeniden açın. Artık açılır.</li>
+    </ol>
+    <p class="note">DMG dosyasının kendisi açılmıyorsa önce şunu çalıştırın: <code>xattr -cr ~/Downloads/AVK-Sinema-Mac-arm64.dmg</code> (Intel Mac'te dosya adı <code>AVK-Sinema-Mac-x64.dmg</code>).</p>
   </div>
 
   <div class="card">

@@ -20,6 +20,10 @@ ADIM 2: KURUN
 ADIM 3: İLK AÇILIŞTAKİ UYARIYI GEÇİN
 Program yeni olduğu için bilgisayarınız ilk açılışta uyarı verebilir. Bu normaldir.
 - Mac: Uygulamalar klasöründe AVK Sinema'ya sağ tıklayın > "Aç" > yine "Aç".
+- Mac'te "AVK Sinema hasarlı, açılamıyor" (damaged) derse: program bozuk değil, Mac imzasız programlara böyle der.
+  "İptal" deyin, programı Uygulamalar klasörüne sürükleyin, Terminal'i açın (Cmd + Boşluk, "Terminal" yazın),
+  şu satırı yapıştırıp Enter'a basın, sonra programı yeniden açın:
+  xattr -cr /Applications/AVK\ Sinema.app
 - Windows: "Daha fazla bilgi" > "Yine de çalıştır".
 Bunu sadece bir kez yaparsınız.
 
