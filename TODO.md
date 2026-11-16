@@ -1,6 +1,6 @@
 # TODO - AVK Sinema (eski ad: AVK Studio)
-**Son güncelleme:** 16 Kasım 2026
-**Devam eden iş:** AVK Sinema v0.1.4 yayında (16 Kas 2026). Üyelerden geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
+**Son güncelleme:** 17 Kasım 2026
+**Devam eden iş:** AVK Sinema v0.1.5 yayında (17 Kas 2026, Windows'ta otomatik güncelleme çalıştı). Üyelerden hata raporu/geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
 
 ## Yapıldı
 - Program (Electron): giriş, otomatik Flow/ChatGPT bağlantısı (kalibrasyonsuz), 4 mod, Videolarım (silme + toplu render), bildirimler, geri/adım gezinme, dikey/yatay seçimi → `AVK-Studio/` (main.js, lib/, src/)
@@ -28,16 +28,19 @@
 - Çözüm talimatı: Applications'a sürükle, Terminal'de `xattr -cr /Applications/AVK\ Sinema.app`, yeniden aç. DMG açılmazsa DMG'ye de `xattr -cr`.
 - Talimat eklendi → `docs/index.html` (yeni kutu), `AVK Sinema Kurulum Kilavuzu.md` (3. adım). GitHub'a gönderildi (commit d6ae51f).
 
-## 17 Kas: hata ayıklama güncellemesi (v0.1.5, HAZIR, henüz yayınlanmadı)
+## 17 Kas: v0.1.5 (YAYINDA, commit 539bbea)
 - Üyelerden gelen hata1 (zaman aşımı, muhtemelen Windows) ve hata2 (Mac, Flow bağlantısında takılma) → `AVK-Studio Hatalar/`. Kesin neden bilinmiyor.
 - Hata kutusuna "Hata raporunu kopyala" düğmesi (sürüm, sistem, tarayıcı, son adımlar) → `main.js` (report), `preload.js`, `src/app.js` (errBox)
 - Zaman aşımı mesajına "Son adım" eklendi → `main.js`
 - Flow bağlantısı: 3 dk bekleme, 45 sn/2 dk sonra yardım yazısı, "Vazgeç" düğmesi, hangi tarayıcının açıldığı logda → `lib/flow.js`, `lib/browser.js`, `src/app.js`
 - video44 geri bildirimi (Zaman Yolculuğu 15+15: geçiş kötü, ses yok, kişiler/arabalar karıştı, 29 sn): geçiş hayalet görüntü yapıyordu → çapraz geçiş kaldırıldı, kesintisiz bağlama, süre kaybı yok → `lib/stitch.js`; prompta karakter/araç "kimlik listesi", önceki klibin devamı, her klipte Türkçe konuşma, hikayenin kendi dönemi kuralları → `lib/templates.js` (HIST_RULES)
 - Ayarlar'a "Şifre değiştir" (mevcut şifre doğrulanır) → `lib/supabase.js`, `main.js`, `src/app.js` (passwordBox). Gerçek hesapla denenmedi
-- Sıradaki: üyelerden rapor iste; yayın için `v0.1.5` etiketi gönder (onay al)
+- Sıradaki: üyelerden "Hata raporunu kopyala" raporu iste; Mac üyeler yeni DMG'yi elle indirmeli (imzasız)
 
 ## Sıradaki adımlar
+- [ ] İsteğe bağlı (v0.1.6): açık kalan programda periyodik güncelleme kontrolü (şu an yalnızca açılışta kontrol ediyor, `main.js` checkUpdate)
+- [ ] Şifre değiştirmeyi gerçek hesapla dene
+- [ ] Üyelere duyur: şifre değiştirme, Flow "Vazgeç", hata raporu düğmesi, Zaman Yolculuğu'nda konuşma yazmak
 - [ ] Skool duyurusuna/kılavuza Mac "damaged" çözümünü de ekle (Mac kullanıcıları için)
 - [ ] Kredi gerektiren gerçek test (onay al): UGC 1 klip (video yakalama), Ürün Tanıtımı 2 sahne (referans yeniden kullanımı + indirme), Zaman Yolculuğu 30 sn
 - [ ] Admin panelinden Skool CSV'sini yükle (yüklenmeden üyeler kayıt olamaz)
