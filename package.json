@@ -1,7 +1,7 @@
 {
   "name": "avk-studio",
   "productName": "AVK Sinema",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "AVK Sinema - AI Video Kulübü Türkçe yapay zeka video stüdyosu",
   "main": "main.js",
   "author": "AI Video Kulübü",
