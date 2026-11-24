@@ -844,7 +844,7 @@ function parseCsv(text) {
 async function viewAdmin(tab = 'members') {
   const body = h('div', { class: 'card' }, 'Yükleniyor...');
   const tabs = h('div', { class: 'tabs' },
-    ['members:Üyeler', 'import:CSV yükle'].map((t) => { const [k, n] = t.split(':'); return h('button', { class: tab === k ? 'on' : '', onclick: () => viewAdmin(k) }, n); }));
+    ['members:Üyeler', 'import:CSV yükle', 'manual:Manuel ekle'].map((t) => { const [k, n] = t.split(':'); return h('button', { class: tab === k ? 'on' : '', onclick: () => viewAdmin(k) }, n); }));
   mount(topbar(h('button', { class: 'btn ghost small', onclick: viewHome }, 'Geri')), h('div', { class: 'wrap' }, h('h1', {}, 'Yönetici paneli'), tabs, body));
   const err = h('div');
   if (tab === 'members') {
@@ -880,6 +880,18 @@ async function viewAdmin(tab = 'members') {
     body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Skool üye listesini yükleyin'),
       h('p', { class: 'sub', style: 'margin:0' }, 'Skool\'dan indirdiğiniz CSV dosyasını seçin. İçindeki e-postalar otomatik üye olur.'),
       h('button', { class: 'btn', onclick: pick }, 'CSV dosyası seç'), out, err));
+  } else if (tab === 'manual') {
+    const em = h('input', { type: 'text', placeholder: 'ornek@gmail.com' });
+    const nm = h('input', { type: 'text', placeholder: 'İsim (isteğe bağlı)' });
+    const add = async () => {
+      const email = em.value.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return toast('Geçerli bir e-posta yazın');
+      const r = await safe(() => call('admin.import', { rows: [{ email, name: nm.value.trim() }], deactivateMissing: false }), err);
+      if (r) { toast(r.added ? 'Üye eklendi' : r.reactivated ? 'Üye yeniden açıldı' : 'Bu üye zaten aktif'); em.value = ''; nm.value = ''; }
+    };
+    body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Üyeyi elle ekleyin'),
+      h('p', { class: 'sub', style: 'margin:0' }, 'Skool listesinde olmayan birini tek tek ekleyin. Diğer üyeler etkilenmez.'),
+      em, nm, h('button', { class: 'btn', onclick: add }, 'Üyeyi ekle'), err));
   } else if (false) {
     const ta = h('textarea', { style: 'min-height:240px;font-family:monospace;font-size:13px', placeholder: '[ {"key":"promptBox","label":"..."}, ... ]' });
     body.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, 'Düğme listesini uzaktan güncelle'),
