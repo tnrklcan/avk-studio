@@ -59,7 +59,14 @@
 - Düzeltme: sorgulara 20 sn sınır (guard), genel bekçi (12 dk + 6 dk sonra kesin hata), Durdur üretim sırasında anında çalışır, sitenin uyarı pencereleri otomatik kapanır, video zaman aşımında otomatik yeniden üretim yok (boşa kredi) → `lib/flow.js`, `lib/browser.js`, `lib/pipeline.js`
 - v0.1.8 yayınlandı (25 Kas), 3 platform derlemesi başarılı. Gerçek üretimle denenmedi
 
+## 25 Kas: Windows üyesi Flow'a bağlanamıyor (v0.1.9, YAYINDA)
+- Hata resmi: `AVK-Studio Hatalar/78ED79AB-81CE-4D6B-BF79-54705CB5CE72.JPG`. Windows, giriş tamam, "Yeni proje"ye basılıyor ama proje sayfası 30 sn'de açılmıyor ("Sayfada beklenen öğe görünmedi (Son adım: Flow: yeni proje açılıyor...)"). Mac'te aynı adım çalışıyor
+- Tahmin: ilk kez Flow kullanana çıkan karşılama/şartlar penceresi. Düzeltme → `lib/flow.js` openProject: 60 sn boyunca onay düğmelerine (Kabul/Anladım/Devam/Got it...) basar, 20 sn sonra "Yeni proje"yi tekrar dener; açılmazsa hata adres + pencere metnini yazar (PROJECT_OPEN)
+- Ayrıca: oturum yokken flow.google.com artık /about tanıtım sayfasına gidiyor; program girişe yönlendiriyor → `lib/flow.js` connect (isAbout, LOGIN_URL)
+- Mac'te test edildi (bağlantı + selfTest OK). Windows'ta denenmedi
+
 ## Sıradaki adımlar
+- [ ] v0.1.9 yayınlandı (25 Kas), Windows üyesinden tekrar denemesini ve hata olursa "Hata raporunu kopyala" metnini iste
 - [ ] Aynı hatayı alan üyeden "Hata raporunu kopyala" çıktısı iste (Teşhis satırı nedeni gösterir)
 - [ ] İsteğe bağlı (v0.1.6): açık kalan programda periyodik güncelleme kontrolü (şu an yalnızca açılışta kontrol ediyor, `main.js` checkUpdate)
 - [ ] Şifre değiştirmeyi gerçek hesapla dene
