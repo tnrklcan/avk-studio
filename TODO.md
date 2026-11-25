@@ -1,6 +1,6 @@
 # TODO - AVK Sinema (eski ad: AVK Studio)
-**Son güncelleme:** 17 Kasım 2026
-**Devam eden iş:** AVK Sinema v0.1.5 yayında (17 Kas 2026, Windows'ta otomatik güncelleme çalıştı). Üyelerden hata raporu/geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
+**Son güncelleme:** 25 Kasım 2026
+**Devam eden iş:** AVK Sinema v0.1.7 yayında (25 Kas 2026, 3 platform dosyası yüklü). Üyelerden hata raporu/geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
 
 ## Yapıldı
 - Program (Electron): giriş, otomatik Flow/ChatGPT bağlantısı (kalibrasyonsuz), 4 mod, Videolarım (silme + toplu render), bildirimler, geri/adım gezinme, dikey/yatay seçimi → `AVK-Studio/` (main.js, lib/, src/)
@@ -37,7 +37,30 @@
 - Ayarlar'a "Şifre değiştir" (mevcut şifre doğrulanır) → `lib/supabase.js`, `main.js`, `src/app.js` (passwordBox). Gerçek hesapla denenmedi
 - Sıradaki: üyelerden "Hata raporunu kopyala" raporu iste; Mac üyeler yeni DMG'yi elle indirmeli (imzasız)
 
+## 18 Kas: Manuel üye ekleme (yerelde, v0.1.6'ya DAHİL EDİLMEDİ)
+- Yönetici paneline "Manuel ekle" sekmesi: e-posta + isim yazılıp tek üye eklenir; mevcut `admin_import` (deactivateMissing=false) kullanılır, Supabase değişikliği yok → `src/app.js` (viewAdmin)
+- Kullanıcı denedi, "olmuş" dedi. Üyeler görmesin diye acele yok; sonraki sürümle (v0.1.6) yayınlanabilir
+
+## 20 Kas: v0.1.6 (YAYINDA)
+- Bir üye karakter kiti oluştururken "Bad control character in string literal in JSON" hatası aldı (hata resmi: `AVK-Studio Hatalar/claude-sorunu.png`). Sebep: ChatGPT cevabındaki JSON metni içinde gerçek satır sonu/sekme vardı. Çözüm: okunamazsa kontrol karakterleri kaçışlanıp yeniden denenir → `lib/chat.js` (extractJson, fixJsonStrings)
+- Sürüm 0.1.6, etiket `v0.1.6` gönderildi, GitHub derlemesi başarılı. Gerçek hesapla denenmedi, sadece örnek metinle test edildi
+- Yalnızca `lib/chat.js` + `package.json` yayınlandı; "Manuel ekle" sekmesi (`src/app.js`) hâlâ yayınlanmadı
+
+## 24-25 Kas: v0.1.7 (YAYINDA)
+- GitHub'da Mac arm64 derlemesi 2 kez "runner bulunamadı" (GitHub kapasite sorunu, kod değil) ile düştü. Çözüm: arm64 DMG kullanıcının Mac'inde derlendi (`npx electron-builder --mac --arm64 --publish never`), `gh release upload` ile yüklendi, `gh release edit --draft=false --latest` ile yayınlandı. Tekrar olursa aynı yol
+- Bir üye (hata resmi: `AVK-Studio Hatalar/Ekran Resmi 2026-11-23 20.57.18.png`) önceki karakter görselini referans verip yeni karakter üretti; Flow üretti ama AVK "Flow zaman aşımı: sonuç gelmedi" dedi, işlem takıldı. Kesin neden bilinmiyor (gerçek hesapla denenmedi)
+- Düzeltme → `lib/flow.js`: görsel yakalama `data:` adreslerini de sayar, en az 256 px, aynı görselin farklı boyut adresi "yeni" sayılmaz (SNAP, seenBase); indirme başarısızsa sayfa oturumuyla yedek deneme (download); zaman aşımında "Teşhis: sayfada X görsel" satırı loga yazılır
+- "Manuel ekle" sekmesi (`src/app.js`) bu sürümle yayınlandı
+- Üyeye geçici çözüm: Flow'dan görseli elle indirip hazır görsel yolunu kullanmak
+- Başka üyelerin "indirme hatası" resmi henüz gelmedi; gelirse `AVK-Studio Hatalar/`'a atılacak
+
+## 25 Kas: video üretiminde 1 saat takılma (YERELDE, yayınlanmadı)
+- Üye storyboard sonrası "Flow: video üretiliyor" ekranında 1 saat kaldı (hata resmi: `AVK-Studio Hatalar/Screenshot_3.png`). Sebep: bekleme döngüsündeki sayfa sorguları süresiz bekleyebiliyordu (ör. Flow uyarı penceresi açınca), 12 dk sınırı hiç işlemedi; "Durdur" da üretim sırasında çalışmıyordu
+- Düzeltme: sorgulara 20 sn sınır (guard), genel bekçi (12 dk + 6 dk sonra kesin hata), Durdur üretim sırasında anında çalışır, sitenin uyarı pencereleri otomatik kapanır, video zaman aşımında otomatik yeniden üretim yok (boşa kredi) → `lib/flow.js`, `lib/browser.js`, `lib/pipeline.js`
+- Gerçek üretimle denenmedi; yayın için onay bekleniyor (v0.1.8)
+
 ## Sıradaki adımlar
+- [ ] Aynı hatayı alan üyeden "Hata raporunu kopyala" çıktısı iste (Teşhis satırı nedeni gösterir)
 - [ ] İsteğe bağlı (v0.1.6): açık kalan programda periyodik güncelleme kontrolü (şu an yalnızca açılışta kontrol ediyor, `main.js` checkUpdate)
 - [ ] Şifre değiştirmeyi gerçek hesapla dene
 - [ ] Üyelere duyur: şifre değiştirme, Flow "Vazgeç", hata raporu düğmesi, Zaman Yolculuğu'nda konuşma yazmak
