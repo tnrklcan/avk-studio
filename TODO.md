@@ -1,6 +1,6 @@
 # TODO - AVK Sinema (eski ad: AVK Studio)
 **Son güncelleme:** 25 Kasım 2026
-**Devam eden iş:** AVK Sinema v0.1.7 yayında (25 Kas 2026, 3 platform dosyası yüklü). Üyelerden hata raporu/geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
+**Devam eden iş:** AVK Sinema v0.1.8 yayında (25 Kas 2026, 3 platform dosyası yüklü). Üyelerden hata raporu/geri bildirim bekleniyor; gerçek üretimle (kredi) test sırada.
 
 ## Yapıldı
 - Program (Electron): giriş, otomatik Flow/ChatGPT bağlantısı (kalibrasyonsuz), 4 mod, Videolarım (silme + toplu render), bildirimler, geri/adım gezinme, dikey/yatay seçimi → `AVK-Studio/` (main.js, lib/, src/)
@@ -54,10 +54,10 @@
 - Üyeye geçici çözüm: Flow'dan görseli elle indirip hazır görsel yolunu kullanmak
 - Başka üyelerin "indirme hatası" resmi henüz gelmedi; gelirse `AVK-Studio Hatalar/`'a atılacak
 
-## 25 Kas: video üretiminde 1 saat takılma (YERELDE, yayınlanmadı)
+## 25 Kas: video üretiminde 1 saat takılma (v0.1.8, YAYINDA)
 - Üye storyboard sonrası "Flow: video üretiliyor" ekranında 1 saat kaldı (hata resmi: `AVK-Studio Hatalar/Screenshot_3.png`). Sebep: bekleme döngüsündeki sayfa sorguları süresiz bekleyebiliyordu (ör. Flow uyarı penceresi açınca), 12 dk sınırı hiç işlemedi; "Durdur" da üretim sırasında çalışmıyordu
 - Düzeltme: sorgulara 20 sn sınır (guard), genel bekçi (12 dk + 6 dk sonra kesin hata), Durdur üretim sırasında anında çalışır, sitenin uyarı pencereleri otomatik kapanır, video zaman aşımında otomatik yeniden üretim yok (boşa kredi) → `lib/flow.js`, `lib/browser.js`, `lib/pipeline.js`
-- Gerçek üretimle denenmedi; yayın için onay bekleniyor (v0.1.8)
+- v0.1.8 yayınlandı (25 Kas), 3 platform derlemesi başarılı. Gerçek üretimle denenmedi
 
 ## Sıradaki adımlar
 - [ ] Aynı hatayı alan üyeden "Hata raporunu kopyala" çıktısı iste (Teşhis satırı nedeni gösterir)
